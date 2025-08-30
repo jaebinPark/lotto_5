@@ -1,6 +1,13 @@
-patch_0.101
-- Hash router(/home,/winning,/saved,/reco,/hall,/analysis)와 화면 스켈레톤 추가
-- 공통 헤더(오른쪽 홈 버튼) + 일관 버튼/카드 스타일
-- 텍스트 오버플로 자동 축소(버튼/타이틀 등 data-fit 속성 대상)
-- 서비스워커 새 버전 감지 시 하단 '업데이트 적용' 바 노출(대기 워커 SKIP_WAITING 시도, 실패 시 새로고침)
-- 하단에 버전 표기: patch_0.101
+patch_0.102
+- Router/Header/Overflow guard/Update bar 유지 (0.101 계승)
+- 안전 스토리지 레이어(Store) 추가: localStorage 네임스페이스 'lotto5:'
+- 스키마 기본값 생성
+  - hall: [] (명예의전당)
+  - saved: { current:[], history:[] }
+  - prefs: { exclusions:[], recoPerClick:30 }
+  - lastSeenBuild: 'patch_0.102'
+- 페이지 뼈대
+  - 저장번호: 샘플 1세트 저장 / 전부 삭제 (스토리지 동작 확인용)
+  - 추천: 제외수/클릭당 생성수 표기, 버튼은 다음 단계에서 활성
+  - 명예의전당/분석: 기본 표시
+- 전역 디버그: window.__LOTTO__ = { VERSION, Store }

@@ -1,176 +1,203 @@
-
-/* lotto app bundle - 0.101
-   - Hash router (home/winning/saved/reco/hall/analysis)
-   - Common header with right home button
-   - Overflow-safe text shrink
-   - Update bar (service worker update detect)
-*/
+/* Lotto Lab Pro - App Bundle
+ * VERSION: patch_0.102
+ * 0.102 내용:
+ * - 해시 라우터 유지 (/home, /winning, /saved, /reco, /hall, /analysis)
+ * - 공통 헤더(오른쪽 홈 아이콘), 베이지톤 UI 유지
+ * - 로컬 스토리지 안전 래퍼(Store) + 스키마 키
+ * - 기기 독립(동기화 없음): 각 기기 브라우저에만 저장
+ * - 오버플로우 가드([data-fit]) 유지
+ * - 서비스워커 새 버전 감지 시 하단 업데이트 바 노출
+ */
 (function () {
   'use strict';
-  const VERSION = 'patch_0.101';
-  const $ = (sel, ctx=document) => ctx.querySelector(sel);
-  const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
-  const root = document.getElementById('app');
+  const VERSION = 'patch_0.102';
+  const THEME = { bg:'#FBF6F0', card:'#F7EDE2', text:'#2E2A26', primary:'#E1D3C6', highlight:'#F6D58E' };
 
-  // ---------- Utilities ----------
-  function el(tag, attrs={}, ...children) {
-    const node = document.createElement(tag);
-    for (const [k,v] of Object.entries(attrs||{})) {
-      if (k === 'class') node.className = v;
-      else if (k === 'style') Object.assign(node.style, v);
-      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.substring(2), v);
-      else node.setAttribute(k, v);
+  const el = (tag, attrs={}, ...children) => {
+    const $ = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs||{})) {
+      if (k === 'class') $.className = v;
+      else if (k === 'style') Object.assign($.style, v);
+      else if (k.startsWith('on') && typeof v === 'function') $.addEventListener(k.slice(2), v);
+      else $.setAttribute(k, v);
     }
-    for (const c of children) {
-      if (c == null) continue;
-      node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-    }
-    return node;
-  }
-
-  function go(hash) {
-    if (!hash.startsWith('#')) hash = '#' + hash;
-    location.hash = hash;
-  }
-
-  // Fit text inside its box by shrinking font-size down to minPx
-  function fitText(node, minPx=12) {
-    if (!node) return;
-    node.style.removeProperty('font-size');
-    const maxLoops = 20;
-    let loops = 0;
-    let fs = parseFloat(getComputedStyle(node).fontSize);
-    const boundsOk = () => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight;
-    while (!boundsOk() && fs > minPx && loops < maxLoops) {
-      fs -= 1;
-      node.style.fontSize = fs + 'px';
-      loops++;
-    }
-  }
-  function applyFit(root=document) {
-    $$('[data-fit]', root).forEach(n => fitText(n));
-  }
-  window.addEventListener('resize', () => applyFit());
-
-  // ---------- Layout Components ----------
-  function Header(title) {
-    const titleSpan = el('span', {class: 'title', 'data-fit': ''}, title);
-    const right = el('button', {class: 'icon-btn', title: '홈', onclick: () => go('/home')}, '🏠');
-    const bar = el('div', {class: 'hdr'},
-      el('div', {class: 'spacer'}),
-      titleSpan,
-      right
-    );
-    queueMicrotask(() => applyFit(bar));
-    return bar;
-  }
-
-  function Card(children, cls='card') {
-    return el('div', {class: cls}, ...(Array.isArray(children) ? children : [children]));
-  }
-  function Button(text, onclick) {
-    const span = el('span', {'data-fit': ''}, text);
-    const btn = el('button', {class: 'btn', onclick}, span);
-    queueMicrotask(() => fitText(span));
-    return btn;
-  }
-
-  // ---------- Pages ----------
-  function pageHome() {
-    const info = Card([
-      el('div', {class:'card-title','data-fit':''}, '로또 Lab Pro'),
-      el('div', {class:'card-desc'}, '기본 UI 셸 (0.101). 이후 단계에서 데이터/엔진이 순차적으로 활성화됩니다.')
-    ]);
-    const menu = el('div', {class:'menu'},
-      Button('당첨번호', ()=>go('/winning')),
-      Button('저장번호', ()=>go('/saved')),
-      Button('추천', ()=>go('/reco')),
-      Button('명예의전당', ()=>go('/hall')),
-      Button('분석', ()=>go('/analysis'))
-    );
-    return el('div', {class:'screen'}, info, menu);
-  }
-  function pagePlaceholder(name) {
-    return el('div', {class:'screen'},
-      Card([
-        el('div', {class:'card-title','data-fit':''}, name),
-        el('div', {class:'muted'}, '추후 단계에서 내용이 활성화됩니다.')
-      ])
-    );
-  }
-  const PAGES = {
-    '/home': () => [Header('홈'), pageHome()],
-    '/winning': () => [Header('당첨번호'), pagePlaceholder('당첨번호')],
-    '/saved': () => [Header('저장번호'), pagePlaceholder('저장번호')],
-    '/reco': () => [Header('추천'), pagePlaceholder('추천')],
-    '/hall': () => [Header('명예의전당'), pagePlaceholder('명예의전당')],
-    '/analysis': () => [Header('분석'), pagePlaceholder('분석')],
+    for (const c of children.flat()) if (c!=null) $.appendChild(typeof c==='string'?document.createTextNode(c):c);
+    return $;
   };
 
-  // ---------- Router ----------
-  function parseHash() {
-    const h = location.hash.replace(/^#/, '');
-    return h || '/home';
-  }
-  function render() {
-    const route = parseHash();
-    const maker = PAGES[route] || PAGES['/home'];
-    root.replaceChildren();
-    const parts = maker();
-    parts.forEach(p => root.appendChild(p));
-    // version footer
-    const ft = el('div', {class:'version'}, 'patch ', VERSION);
-    root.appendChild(ft);
-    applyFit(root);
-  }
-  window.addEventListener('hashchange', render);
-
-  // ---------- Update Bar (SW) ----------
-  const updBar = (function(){
-    const bar = el('div',{class:'update-bar', id:'update-bar'},
-      el('span',{class:'update-text','data-fit':''},'새 버전이 준비되었습니다.'),
-      el('button',{class:'update-act'},'업데이트 적용')
-    );
-    document.body.appendChild(bar);
-    const applyBtn = $('.update-act', bar);
-    applyBtn.addEventListener('click', async () => {
-      try {
-        if ('serviceWorker' in navigator) {
-          const reg = await navigator.serviceWorker.getRegistration();
-          if (reg && reg.waiting) {
-            reg.waiting.postMessage({type:'SKIP_WAITING'});
-          }
-        }
-      } catch(e){}
-      // fallback: 강제 새로고침
-      location.reload();
-    });
-    function show(){ bar.classList.add('show'); applyFit(bar);}
-    return {show};
+  const Store = (()=>{
+    const NS = 'lotto5';
+    const key = k => `${NS}:${k}`;
+    const read = (k,f=null)=>{ try{ const r=localStorage.getItem(key(k)); return r?JSON.parse(r):f }catch(e){ return f } };
+    const write = (k,v)=>{ try{ localStorage.setItem(key(k), JSON.stringify(v)); return true }catch(e){ return false } };
+    const patch = (k,fn,f)=>{ const cur=read(k,f); const nxt=fn(cur); write(k,nxt); return nxt };
+    const remove = (k)=>{ try{ localStorage.removeItem(key(k)) }catch(e){} };
+    const keys = ()=> Object.keys(localStorage).filter(s=>s.startsWith(NS+':')).map(s=>s.slice(NS.length+1));
+    return { read, write, patch, remove, keys };
   })();
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration().then(reg => {
-      if (!reg) return;
-      // 이미 대기중인 새 워커가 있으면 표시
-      if (reg.waiting) updBar.show();
-      reg.addEventListener('updatefound', ()=>{
-        const nw = reg.installing;
-        if (!nw) return;
-        nw.addEventListener('statechange', ()=>{
-          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-            updBar.show();
-          }
-        });
-      });
-    });
-    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
-      // 새 SW가 활성화되면 자동 새로고침
-      location.reload();
-    });
+  (function ensureSchema(){
+    if (!Store.read('hall')) Store.write('hall', []);
+    if (!Store.read('saved')) Store.write('saved', { current:[], history:[] });
+    if (!Store.read('prefs')) Store.write('prefs', { exclusions: [], recoPerClick: 30 });
+    Store.write('lastSeenBuild', VERSION);
+  })();
+
+  function Header(title){
+    const homeBtn = el('button', { class:'icon-btn', 'aria-label':'홈으로' }, '🏠');
+    homeBtn.addEventListener('click', ()=> go('/home'));
+    return el('div', { class:'header' },
+      el('div',{class:'spacer'}),
+      el('h1',{class:'title','data-fit':''},title),
+      el('div',{class:'right'}, homeBtn)
+    );
   }
 
-  // init
-  if (!location.hash) location.replace('#/home');
-  render();
+  const UpdateBar = (()=>{
+    const bar = el('div', { class:'update-bar hidden' },
+      el('span', {}, '새 업데이트가 있습니다.'),
+      el('button', { class:'btn-primary', id:'btn-update-now' }, '업데이트')
+    );
+    bar.querySelector('#btn-update-now').addEventListener('click', async ()=>{
+      try{
+        const reg = await navigator.serviceWorker.getRegistration();
+        if(reg && reg.waiting){ reg.waiting.postMessage({type:'SKIP_WAITING'}); setTimeout(()=>location.reload(),800); }
+        else location.reload();
+      }catch(e){ location.reload(); }
+    });
+    return { mount(root){root.appendChild(bar)}, show(){bar.classList.remove('hidden')}, hide(){bar.classList.add('hidden')} };
+  })();
+
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.getRegistration().then(reg=>{
+      if(!reg) return;
+      reg.addEventListener('updatefound', ()=> UpdateBar.show());
+      if(reg.waiting) UpdateBar.show();
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', ()=> setTimeout(()=>location.reload(),100));
+    navigator.serviceWorker.addEventListener('message', e=>{ if(e.data && e.data.type==='NEW_VERSION') UpdateBar.show() });
+  }
+
+  function fitText(node, minPx=12){
+    const maxWidth = node.clientWidth;
+    if(!maxWidth) return;
+    let low=minPx, high=parseFloat(getComputedStyle(node).fontSize)||20, ok=low;
+    while(low<=high){
+      const mid=(low+high>>1);
+      node.style.fontSize=mid+'px';
+      if(node.scrollWidth<=maxWidth && node.scrollHeight<=node.clientHeight+4){ ok=mid; low=mid+1 } else high=mid-1;
+    }
+    node.style.fontSize=ok+'px';
+  }
+  function applyFit(){ document.querySelectorAll('[data-fit]').forEach(n=>fitText(n)); }
+  window.addEventListener('resize', applyFit);
+
+  function PageHome(){
+    const wrap = el('div',{class:'page'},
+      Header('홈'),
+      el('div',{class:'card info'},
+        el('div',{class:'info-title'},'로또 Lab Pro'),
+        el('p',{},'기본 UI 셸 (0.101~0.102). 이후 단계에서 데이터/엔진이 순차적으로 활성화됩니다.')
+      ),
+      el('div',{class:'grid'},
+        NavBtn('당첨번호','/winning'),
+        NavBtn('저장번호','/saved'),
+        NavBtn('추천','/reco'),
+        NavBtn('명예의전당','/hall'),
+        NavBtn('분석','/analysis')
+      ),
+      el('div',{class:'version'},'patch '+VERSION)
+    );
+    setTimeout(applyFit);
+    return wrap;
+  }
+
+  function PageWinning(){
+    const wrap = el('div',{class:'page'},
+      Header('당첨번호'),
+      el('div',{class:'card'}, el('p',{},'아직 데이터 연동 전입니다. 이후 업데이트에서 자동 수집/QR 확인이 활성화됩니다.'))
+    );
+    setTimeout(applyFit);
+    return wrap;
+  }
+
+  function PageSaved(){
+    const saved=Store.read('saved');
+    const count=saved.current.length;
+    const wrap = el('div',{class:'page'},
+      Header('저장번호'),
+      el('div',{class:'card'},
+        el('p',{},`저장된 현재 세트: ${count}개`),
+        el('div',{class:'btn-row'},
+          el('button',{class:'btn',id:'btn-save-sample'},'샘플 1세트 저장'),
+          el('button',{class:'btn-outline',id:'btn-clear-all'},'전부 삭제')
+        ),
+        el('p',{class:'tip'},'※ 이 단계는 저장 엔진 테스트용입니다. 다음 단계에서 실제 UI와 함께 연동됩니다.')
+      )
+    );
+    setTimeout(applyFit);
+    wrap.querySelector('#btn-save-sample').addEventListener('click',()=>{
+      Store.patch('saved',(s)=>{ s.current.push(sampleTicket()); return s },{current:[],history:[]});
+      alert('샘플 1세트를 저장했습니다.');
+      go('/saved');
+    });
+    wrap.querySelector('#btn-clear-all').addEventListener('click',()=>{
+      if(!confirm('저장된 모든 번호를 삭제할까요?')) return;
+      Store.write('saved',{current:[],history:[]}); alert('삭제했습니다.'); go('/saved');
+    });
+    return wrap;
+  }
+  function sampleTicket(){
+    const nums=Array.from({length:45},(_,i)=>i+1);
+    for(let i=nums.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [nums[i],nums[j]]=[nums[j],nums[i]]; }
+    return nums.slice(0,6).sort((a,b)=>a-b);
+  }
+
+  function PageReco(){
+    const prefs=Store.read('prefs');
+    const wrap = el('div',{class:'page'},
+      Header('추천'),
+      el('div',{class:'card'},
+        el('p',{},'추천 엔진 연동 전 단계입니다.'),
+        el('p',{},`현재 제외수: ${prefs.exclusions.length}개, 클릭당 추천 예정 수: ${prefs.recoPerClick}세트`),
+        el('div',{class:'btn-row'},
+          el('button',{class:'btn disabled'},'제외수 리셋(다음 단계)'),
+          el('button',{class:'btn-primary disabled'},'추천 생성(다음 단계)')
+        )
+      )
+    );
+    setTimeout(applyFit);
+    return wrap;
+  }
+
+  function PageHall(){
+    const hall=Store.read('hall');
+    const wrap = el('div',{class:'page'},
+      Header('명예의전당'),
+      el('div',{class:'card'},
+        hall.length ? el('ul',{class:'list'}, hall.map(h=>el('li',{},`#${h.round}회 ${h.rank}등 - ${h.set.join(', ')}`))) : el('p',{},'아직 등록된 당첨 기록이 없습니다.')
+      )
+    );
+    setTimeout(applyFit);
+    return wrap;
+  }
+
+  function PageAnalysis(){
+    const wrap = el('div',{class:'page'},
+      Header('분석'),
+      el('div',{class:'card'}, el('h3',{'data-fit':''},'추천엔진 소개(미리보기)'), el('p',{},'그룹 가중치, 최근성, 지연도 기반의 스코어링과 제약 필터로 조합합니다. 상세 내용은 이후 단계에서 앱 내 카드로 제공됩니다.')),
+      el('div',{class:'card'}, el('h3',{},'패치 노트'), el('p',{},'현재 버전: '+VERSION))
+    );
+    setTimeout(applyFit);
+    return wrap;
+  }
+
+  const ROOT=document.getElementById('app');
+  function NavBtn(label,to){ const b=el('button',{class:'nav-btn','data-fit':''},label); b.addEventListener('click',()=>go(to)); return el('div',{class:'nav-item'},b) }
+  function go(path){ if(!path.startsWith('/')) path='/'+path; location.hash='#'+path }
+  const PAGES={'/home':PageHome,'/winning':PageWinning,'/saved':PageSaved,'/reco':PageReco,'/hall':PageHall,'/analysis':PageAnalysis};
+  function render(){ let path=location.hash.replace('#','')||'/home'; if(!PAGES[path]) path='/home'; ROOT.innerHTML=''; ROOT.appendChild(PAGES[path]()); UpdateBar.mount(document.body) }
+  window.addEventListener('hashchange', render);
+  window.addEventListener('load', render);
+  window.__LOTTO__={ VERSION, Store };
 })();

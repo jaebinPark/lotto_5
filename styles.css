@@ -1,77 +1,26 @@
-
-/* styles for lotto app 0.101 */
-:root{
-  --bg:#FBF6F0;
-  --card:#FFF6EB;
-  --ink:#2E2A26;
-  --muted:#6f675f;
-  --btn:#F6E9DA;
-  --shadow:0 8px 24px rgba(0,0,0,.08);
-}
-
-*{box-sizing:border-box;}
-html,body{height:100%;}
-body{
-  margin:0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-  color:var(--ink);
-  background:var(--bg);
-}
-
-#app{ padding: 24px 16px 80px; max-width: 520px; margin: 0 auto; }
-
-.hdr{
-  position:sticky; top:0; z-index:10;
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 16px 8px;
-  background: var(--bg);
-}
-.hdr .spacer{ width:42px; }
-.hdr .title{ display:inline-block; max-width: 70%; font-weight:700; font-size:22px; text-align:center; }
-.icon-btn{
-  width:42px; height:42px; border-radius:12px; border:none; background:var(--card);
-  box-shadow: var(--shadow);
-  font-size:20px; line-height:42px; text-align:center; cursor:pointer;
-}
-
-.card{
-  background: var(--card);
-  border-radius:16px;
-  padding:18px;
-  margin: 8px 0 16px;
-  box-shadow: var(--shadow);
-}
-.card-title{ font-weight:800; font-size:20px; margin-bottom:6px; overflow:hidden; white-space:nowrap; }
-.card-desc{ color:var(--muted); font-size:15px; }
-
-.menu{ display:flex; flex-direction:column; gap:14px; margin-top:6px; }
-.btn{
-  width:100%; padding:18px 16px; border-radius:16px; border:none; cursor:pointer;
-  background: var(--btn); box-shadow: var(--shadow);
-  font-size:20px; font-weight:800; color:var(--ink);
-}
-.btn > [data-fit]{ display:inline-block; max-width:100%; overflow:hidden; white-space:nowrap; }
-
-.screen{ padding-top: 4px; }
-
-.muted{ color:var(--muted); font-size:14px; }
-
-.version{
-  text-align:center; color:var(--muted); margin: 24px 0 8px; font-size:14px;
-}
-
-/* update bar */
-.update-bar{
-  position: fixed; left:0; right:0; bottom: 8px; margin: 0 auto;
-  max-width: 560px;
-  transform: translateY(140%);
-  transition: transform .25s ease;
-  display:flex; gap:10px; align-items:center; justify-content:space-between;
-  background: #fff; padding: 12px 12px; border-radius: 12px; box-shadow: var(--shadow);
-}
-.update-bar.show{ transform: translateY(0); }
-.update-bar .update-text{ font-weight:700; max-width: 65%; overflow:hidden; white-space:nowrap; }
-.update-act{
-  border:none; border-radius:10px; padding:10px 12px; font-weight:800; cursor:pointer;
-  background:#FFE08C;
-}
+:root{ --bg:#FBF6F0; --card:#F7EDE2; --text:#2E2A26; --primary:#E1D3C6; --shadow:0 8px 24px rgba(0,0,0,.08) }
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Apple SD Gothic Neo',Helvetica,Arial,sans-serif}
+#app{padding:24px 16px 64px;max-width:680px;margin:0 auto}
+.header{position:sticky;top:0;background:var(--bg);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:16px 8px;z-index:10}
+.header .title{margin:0;text-align:center;line-height:32px;height:32px;font-weight:800}
+.header .right{display:flex;gap:8px;justify-content:flex-end}
+.icon-btn{border:none;background:#fff;box-shadow:var(--shadow);padding:10px 12px;border-radius:14px;font-size:18px}
+.card{background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:18px 16px;margin:12px 0}
+.card.info .info-title{font-weight:800;margin-bottom:4px}
+.grid{display:grid;grid-template-columns:1fr;gap:14px;margin-top:6px}
+@media(min-width:480px){ .grid{grid-template-columns:1fr 1fr} }
+.nav-btn{width:100%;padding:18px 16px;border:none;border-radius:16px;background:#fff;box-shadow:var(--shadow);font-weight:800;font-size:20px}
+.nav-btn:active{transform:translateY(1px)}
+.version{text-align:center;margin:24px 0 0;opacity:.5}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.btn,.btn-outline,.btn-primary{padding:12px 14px;border-radius:12px;border:none;font-weight:700}
+.btn{background:#fff;box-shadow:var(--shadow)}
+.btn-outline{background:transparent;border:2px solid rgba(0,0,0,.15)}
+.btn-primary{background:#F6D58E;box-shadow:var(--shadow)}
+.disabled{opacity:.5;pointer-events:none}
+.list{margin:0;padding-left:18px}
+.tip{opacity:.6;margin-top:8px}
+.update-bar{position:fixed;left:12px;right:12px;bottom:12px;background:#fff;border-radius:14px;box-shadow:var(--shadow);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.update-bar.hidden{display:none}
+[data-fit]{display:block}

@@ -1,13 +1,18 @@
-patch_0.102
-- Router/Header/Overflow guard/Update bar 유지 (0.101 계승)
-- 안전 스토리지 레이어(Store) 추가: localStorage 네임스페이스 'lotto5:'
-- 스키마 기본값 생성
-  - hall: [] (명예의전당)
-  - saved: { current:[], history:[] }
-  - prefs: { exclusions:[], recoPerClick:30 }
-  - lastSeenBuild: 'patch_0.102'
-- 페이지 뼈대
-  - 저장번호: 샘플 1세트 저장 / 전부 삭제 (스토리지 동작 확인용)
-  - 추천: 제외수/클릭당 생성수 표기, 버튼은 다음 단계에서 활성
-  - 명예의전당/분석: 기본 표시
-- 전역 디버그: window.__LOTTO__ = { VERSION, Store }
+PATCH patch_0.103
+- VERSION 하드코딩: patch_0.103
+- 추천 화면 구현(1차):
+  • 1~45 칩(가변 그리드, iPhone 폭에서 자동 줄바꿈/축소)
+  • 칩 탭 → 제외수 토글(상태는 prefs.exclusions로 저장)
+  • [제외수 리셋]은 제외수만 초기화(추천 결과는 보존)
+  • [추천(30세트)] 클릭 시 2초 로딩 후 무작위 추천(제외수 반영)
+  • 추천 결과는 5세트 단위 카드로 표시 + 자동 저장(saved.current에 append)
+- 저장번호 화면:
+  • 저장된 세트 렌더링, 샘플 저장/전부 삭제 버튼
+- 공통
+  • 로컬 스토리지 레이어 유지(__LOTTO__.Store), 라우터/헤더 유지
+  • 칩/카드 스타일 오버플로 가드(작게 줄어들며 wrap)
+주의
+- 추천엔진은 현재 무작위+제외수만 적용(정식 엔진은 다음 단계 패치 예정)
+- 이 패치로 데이터 초기화는 일어나지 않음(기존 localStorage 유지)
+호환
+- index.html은 0.100/0.101/0.102 구성과 동일(변경 불필요)

@@ -39,3 +39,11 @@ body.no-scroll{overflow:hidden}
 .center{text-align:center}
 
 .patch{margin-top:auto;padding:8px 0;text-align:center;opacity:.7;font-size:12px}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: #FBF6F0;
+  padding-bottom: env(safe-area-inset-bottom); /* iPhone 하단 안전영역 */
+  overscroll-behavior-y: none; /* 당겨서 새로고침 방지 */
+}

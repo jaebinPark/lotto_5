@@ -1,17 +1,43 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+
+  <!-- iOS PWA 필수 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#FBF6F0">
+
+  <!-- 홈화면 아이콘(있으면 사용, 없으면 나중에 추가) -->
+  <link rel="apple-touch-icon" href="./icons/app-icon-180.png">
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="./manifest.webmanifest">
+
   <title>로또 Lab Pro</title>
-  <meta name="theme-color" content="#F4EDE5">
-  <link rel="stylesheet" href="./styles.css?v=1756547488">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div id="app"></div>
+
   <script>
+    // (선택) 최초 진입을 /home 으로 보냄
     if (!location.hash) location.replace("#/home");
   </script>
-  <script src="./app.bundle.js?v=1756547488" defer></script>
+
+  <script src="./app.bundle.js" defer></script>
+
+  <!-- 서비스워커 등록(상대경로, scope는 현재 폴더) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(()=>{});
+      });
+    }
+    console.log('MODE',
+      window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone
+        ? 'standalone' : 'browser');
+  </script>
 </body>
-</html>
+</html

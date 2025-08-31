@@ -1,6 +1,6 @@
 :root{ --bg:#FBF6F0; --ink:#2E2A26; --card:#F7EFE5; --shadow:0 8px 22px rgba(0,0,0,.08); --btn:#EFE6DA; --btnP:#F4C64E; --btnD:#F06C6C }
 *{box-sizing:border-box} html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR',sans-serif}
-#app{padding:30px 16px 30px} /* 홈 상단/하단 30px 비움 */
+#app{padding:30px 16px 30px}
 .hdr{position:sticky;top:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:10px 8px 12px;z-index:5}
 .hdr .twrap{max-width:70%} .hdr .ttl{margin:0;height:32px;line-height:32px;font-weight:800;font-size:22px;white-space:nowrap;overflow:hidden}
 .hdr .sp{width:44px}
@@ -16,6 +16,9 @@
 .btn.win span::before{content:'👑 1등 ';margin-right:6px}
 .row{display:flex;gap:12px;flex-wrap:wrap} .row.equal .btn{flex:1}
 .list{margin-bottom:56px}
+.toolbar{position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:space-between;background:var(--bg);padding:8px 4px 4px;gap:8px}
+.toolbar.hidden{display:none}
+.tleft{font-weight:800;opacity:.85}
 .set-row{display:flex;gap:10px;padding:8px 10px;flex-wrap:wrap;align-items:center;border-radius:12px;transition:background .15s}
 .set-row.selected{background:#E6F4FF}
 .set-row .chips{display:flex;gap:10px;flex-wrap:wrap}
@@ -30,6 +33,7 @@
 .covbar.ok{background:#4AA3FF}
 .covbar.bad{background:#E74C3C}
 .prob{margin-left:8px;font-weight:800;opacity:.8;white-space:nowrap}
+.rank{margin-left:8px;font-weight:900;opacity:.85;white-space:nowrap}
 .chip-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(24px,1fr));gap:8px}
 @media (min-width:360px){ .chip{min-width:28px;height:28px;font-size:14px} .chip.small{min-width:26px;height:26px;font-size:13px} .covbar{height:28px} }
 @media (min-width:414px){ .chip{min-width:30px;height:30px;font-size:15px} .chip.small{min-width:28px;height:28px;font-size:14px} .covbar{height:30px} }

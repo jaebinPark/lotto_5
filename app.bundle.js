@@ -1,16 +1,16 @@
-/* Lotto Lab Pro - 0.104
- * Scope: 추천 UI 안정화
- * - 칩 반응형(더 작은 스텝), 버튼 동일 너비, 타이틀/텍스트 오버플로 가드 유지
- * - 추천: 2초 로딩 후 정확히 30세트(5x6) 생성/표시, 다시 누르면 목록만 리셋
- * - 제외수 리셋은 추천 결과 보존, 제외수/과다 제외 안전메시지 강화
- * - 자동 저장(saved.current append) 유지
+/* Lotto Lab Pro - 0.105
+ * Scope: 추천 엔진 제약 1차(밴드 상한), UI 기존 흐름 유지
+ * - 밴드 상한 적용: 1~9,10~19,20~29,30~39 은 세트당 최대 3개 / 40~45는 최대 2개
+ * - 제외수 과다/제약 충돌시 경고 및 가능한 만큼만 생성
+ * - 겹침(1회~최근) 3개 이상 제외, G1 편중≤2개, '직전번호 제외수 무시' 는 데이터 연동 후 활성(스토어 훅만 준비)
  */
 (function(){
   'use strict';
-  const VERSION = 'patch_0.104';
+  const VERSION = 'patch_0.105';
   const $ = (s,el=document)=>el.querySelector(s);
   const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
 
+  // ---------- helpers ----------
   const el = (tag, attrs={}, ...children) => {
     const n = document.createElement(tag);
     for (const [k,v] of Object.entries(attrs||{})){
@@ -37,9 +37,16 @@
   function applyFits(root=document){ root.querySelectorAll('[data-fit]').forEach(n=>fitBox(n)); }
   window.addEventListener('resize', ()=>applyFits());
 
+  // ---------- storage ----------
   const Store = (()=>{
     const NS='lotto5:';
-    const def = { prefs:{exclusions:[],recoPerClick:30}, saved:{current:[],history:[]}, hall:[], lastSeenBuild: VERSION };
+    const def = {
+      prefs:{exclusions:[],recoPerClick:30},
+      saved:{current:[],history:[]},
+      hall:[],
+      data:{ lastRound:null, lastNumbers:[], history:[] },
+      lastSeenBuild: VERSION
+    };
     const key = k => NS+k;
     function read(k){ try{ const r=localStorage.getItem(key(k)); if(!r){ write(k,def[k]); return JSON.parse(JSON.stringify(def[k])); } return JSON.parse(r) }catch(e){ return JSON.parse(JSON.stringify(def[k])) } }
     function write(k,v){ try{ localStorage.setItem(key(k), JSON.stringify(v)); }catch(e){} }
@@ -47,6 +54,7 @@
     return { read, write, patch };
   })();
 
+  // ---------- theming ----------
   const Colors = {
     chipFill(n){
       if(n<=10) return '#F4C64E';
@@ -57,6 +65,7 @@
     }
   };
 
+  // ---------- components ----------
   function Header(title){
     const t = el('h1',{class:'ttl','data-fit':''}, title);
     const h = el('div',{class:'hdr'},
@@ -74,24 +83,57 @@
     c.textContent = n; c.style.setProperty('--chip-fill', Colors.chipFill(n)); return c;
   }
 
-  function recommendSetsExactly(targetCount, exclusions){
+  // ---------- recommend with constraints ----------
+  const BAND_CAPS = { a:[1,9,3], b:[10,19,3], c:[20,29,3], d:[30,39,3], e:[40,45,2] };
+  function bandKey(n){ if(n<=9) return 'a'; if(n<=19) return 'b'; if(n<=29) return 'c'; if(n<=39) return 'd'; return 'e'; }
+  function validateBandCaps(set){
+    const cnt = {a:0,b:0,c:0,d:0,e:0};
+    for(const n of set){ cnt[bandKey(n)]++; }
+    return (cnt.a<=BAND_CAPS.a[2] && cnt.b<=BAND_CAPS.b[2] && cnt.c<=BAND_CAPS.c[2] && cnt.d<=BAND_CAPS.d[2] && cnt.e<=BAND_CAPS.e[2]);
+  }
+  function recommendSetsConstrained(targetCount, exclusions){
     const ex = new Set(exclusions||[]);
     const pool = []; for(let i=1;i<=45;i++) if(!ex.has(i)) pool.push(i);
     if (pool.length < 6) {
       return { error:`제외수가 너무 많습니다. 남은 숫자 ${pool.length}개로는 6개 조합 불가. 제외수를 줄여주세요.` };
     }
-    if (ex.size >= 45) return { error:`모든 숫자를 제외할 수는 없습니다.` };
+    const data = Store.read('data');
+    const last = new Set(data.lastNumbers||[]);
+    const history = data.history||[];
+    const ENABLE_G1_LIMIT = last.size>0;
+    const ENABLE_OVERLAP_RULE = history.length>0;
+
     function one(){
       const tmp = pool.slice();
       const out = [];
       for(let k=0;k<6;k++){ const idx=(Math.random()*tmp.length)|0; out.push(tmp.splice(idx,1)[0]); }
       out.sort((a,b)=>a-b); return out;
     }
-    const uniq=new Set(), sets=[]; let guard=0, maxTry=targetCount*40;
-    while(sets.length<targetCount && guard<maxTry){
-      const s=one(); const key=s.join('-'); if(!uniq.has(key)){ uniq.add(key); sets.push(s); } guard++;
+    function passesConstraints(set){
+      if (!validateBandCaps(set)) return false;
+      if (ENABLE_G1_LIMIT){
+        let g1c=0; for(const n of set) if(last.has(n)) g1c++; if(g1c>2) return false;
+      }
+      if (ENABLE_OVERLAP_RULE){
+        for (const h of history){
+          const hv = new Set(h.numbers||[]);
+          let inter=0; for(const n of set) if(hv.has(n)) inter++;
+          if (inter>=3) return false;
+        }
+      }
+      return true;
     }
-    if (sets.length<targetCount) return { warning:`가능한 조합이 적어 ${sets.length}세트만 생성되었습니다. 제외수를 일부 줄여보세요.`, sets };
+
+    const uniq=new Set(); const sets=[];
+    let guard=0, maxTry=targetCount*150;
+    while(sets.length<targetCount && guard<maxTry){
+      const s=one(); const key=s.join('-');
+      if(!uniq.has(key) && passesConstraints(s)){ uniq.add(key); sets.push(s); }
+      guard++;
+    }
+    if (sets.length<targetCount){
+      return { warning:`제약/제외수로 인해 ${sets.length}세트만 생성되었습니다. 제외수를 일부 줄여보세요.`, sets };
+    }
     return { sets };
   }
 
@@ -100,16 +142,19 @@
     document.body.appendChild(ov); return { close(){ ov.remove(); } };
   }
 
+  // ---------- pages ----------
   function Home(){
-    const p = el('div',{class:'page'}, Header('홈'),
-      Card(el('div',{class:'title'},'로또 Lab Pro'), el('div',{class:'desc'},'추천 UI 안정화 단계(0.104).')),
+    const p = el('div',{class:'page'},
+      Header('홈'),
+      Card(el('div',{class:'title'},'로또 Lab Pro'), el('div',{class:'desc'},'추천 엔진 제약 1차(밴드 상한) 적용(0.105).')),
       Btn('당첨번호','blk',()=>go('/wins')),
       Btn('저장번호','blk',()=>go('/saved')),
       Btn('추천','blk',()=>go('/reco')),
       Btn('명예의전당','blk',()=>go('/hall')),
       Btn('분석','blk',()=>go('/analysis')),
       el('div',{class:'ver'},'patch '+VERSION)
-    ); return p;
+    );
+    return p;
   }
 
   function Saved(){
@@ -149,6 +194,7 @@
     }
     const listArea=el('div',{class:'list'});
     const info=el('div',{class:'muted'},'표시 중: 0세트 (목표 30세트)');
+    const note=el('div',{class:'muted'},'적용 제약: 밴드 상한(1~39 ≤3, 40~45 ≤2). 겹침/G1 편중은 데이터 연동 후 활성.');
     const controls=el('div',{class:'row equal'},
       Btn('제외수 리셋','ghost',()=>{
         exclusions=new Set(); $$('.chip-grid .chip',gridCard).forEach(c=>c.classList.remove('hollow'));
@@ -156,7 +202,7 @@
       }),
       Btn('추천(30세트)','primary', async ()=>{
         const ov=showLoading('추천 계산 중...'); await new Promise(r=>setTimeout(r,2000)); ov.close();
-        const {sets,error,warning}=recommendSetsExactly(30, Array.from(exclusions));
+        const {sets,error,warning}=recommendSetsConstrained(30, Array.from(exclusions));
         listArea.innerHTML='';
         if(error){ listArea.appendChild(Card(el('div',{class:'warn'},error))); info.textContent='표시 중: 0세트 (목표 30세트)'; return; }
         const blocks=chunk(sets,5);
@@ -170,13 +216,14 @@
         Store.patch('saved',cur=>{ (cur.current||(cur.current=[])).push(...sets); return cur; });
       })
     );
-    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(listArea); return p;
+    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(note); p.appendChild(listArea); return p;
   }
 
   function Wins(){ return el('div',{class:'page'}, Header('당첨번호'), Card(el('div',{class:'desc'},'다음 단계에서 연동됩니다.'))); }
   function Hall(){ return el('div',{class:'page'}, Header('명예의전당'), Card(el('div',{class:'desc'},'아직 기록이 없습니다.'))); }
-  function Analysis(){ return el('div',{class:'page'}, Header('분석'), Card(el('div',{class:'title'},'추천엔진 소개'), el('div',{class:'desc'},'현재는 무작위+제외수만 적용합니다. 다음 단계에서 제약/가중치 추가.')), Card(el('div',{class:'desc'},'버전: '+VERSION))); }
+  function Analysis(){ return el('div',{class:'page'}, Header('분석'), Card(el('div',{class:'title'},'추천엔진 제약 1차'), el('div',{class:'desc'},'밴드 상한(1~39 ≤3, 40~45 ≤2) 적용. 겹침/G1 제한은 데이터 연동 후 활성화됩니다.')), Card(el('div',{class:'desc'},'버전: '+VERSION))); }
 
+  // ---------- mount/router ----------
   const ROOT=document.getElementById('app');
   const PAGES={'/home':Home,'/saved':Saved,'/reco':Recommend,'/wins':Wins,'/hall':Hall,'/analysis':Analysis};
   function render(){ let path=location.hash.replace('#','')||'/home'; if(!PAGES[path]) path='/home'; ROOT.replaceChildren(PAGES[path]()); applyFits(ROOT); }

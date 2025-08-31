@@ -1,12 +1,14 @@
-/* Lotto Lab Pro - 0.105
- * Scope: 추천 엔진 제약 1차(밴드 상한), UI 기존 흐름 유지
- * - 밴드 상한 적용: 1~9,10~19,20~29,30~39 은 세트당 최대 3개 / 40~45는 최대 2개
- * - 제외수 과다/제약 충돌시 경고 및 가능한 만큼만 생성
- * - 겹침(1회~최근) 3개 이상 제외, G1 편중≤2개, '직전번호 제외수 무시' 는 데이터 연동 후 활성(스토어 훅만 준비)
+/* Lotto Lab Pro - 0.106
+ * Scope: 추천 엔진 제약 2차
+ * - 밴드 상한(1~39 ≤3, 40~45 ≤2) 유지
+ * - 겹침 규칙 활성: 전체 이력(history)과 3개 이상 겹치면 제외
+ * - G1 편중 제한 활성: 직전 회차 번호는 세트당 최대 2개
+ * - 제외수에 직전 회차 번호가 포함되어 있으면 **자동으로 제외수에서 제거(무시)**
+ * - UI: 안내문에 적용 규칙 표시, 직전 번호 칩은 시각 강조
  */
 (function(){
   'use strict';
-  const VERSION = 'patch_0.105';
+  const VERSION = 'patch_0.106';
   const $ = (s,el=document)=>el.querySelector(s);
   const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
 
@@ -44,7 +46,7 @@
       prefs:{exclusions:[],recoPerClick:30},
       saved:{current:[],history:[]},
       hall:[],
-      data:{ lastRound:null, lastNumbers:[], history:[] },
+      data:{ lastRound:null, lastNumbers:[], history:[] }, // history: [{round, numbers:[...6], bonus}...]
       lastSeenBuild: VERSION
     };
     const key = k => NS+k;
@@ -78,8 +80,8 @@
   }
   function Card(...kids){ return el('div',{class:'card'},...kids); }
   function Btn(text, cls, cb){ const span=el('span',{'data-fit':''},text); const b=el('button',{class:'btn '+(cls||''),onclick:cb},span); queueMicrotask(()=>fitBox(span)); return b; }
-  function lottoChip(n, small=true, hollow=false){
-    const c = el('div',{class:'chip'+(small?' small':'' )+(hollow?' hollow':''),'data-n':n});
+  function lottoChip(n, small=true, hollow=false, extraClass=''){
+    const c = el('div',{class:'chip'+(small?' small':'' )+(hollow?' hollow':'' )+(extraClass?(' '+extraClass):''),'data-n':n});
     c.textContent = n; c.style.setProperty('--chip-fill', Colors.chipFill(n)); return c;
   }
 
@@ -91,17 +93,22 @@
     for(const n of set){ cnt[bandKey(n)]++; }
     return (cnt.a<=BAND_CAPS.a[2] && cnt.b<=BAND_CAPS.b[2] && cnt.c<=BAND_CAPS.c[2] && cnt.d<=BAND_CAPS.d[2] && cnt.e<=BAND_CAPS.e[2]);
   }
-  function recommendSetsConstrained(targetCount, exclusions){
-    const ex = new Set(exclusions||[]);
-    const pool = []; for(let i=1;i<=45;i++) if(!ex.has(i)) pool.push(i);
+  function recommendSetsConstrainedV2(targetCount, userExclusions, data){
+    const last = new Set((data && data.lastNumbers)||[]);
+    // 1) 제외수에서 직전 번호 자동 제거
+    const effectiveEx = new Set(userExclusions||[]);
+    let autoFreed = [];
+    for (const n of last){ if (effectiveEx.has(n)){ effectiveEx.delete(n); autoFreed.push(n); } }
+
+    // 2) 풀 구성
+    const pool = []; for(let i=1;i<=45;i++) if(!effectiveEx.has(i)) pool.push(i);
     if (pool.length < 6) {
       return { error:`제외수가 너무 많습니다. 남은 숫자 ${pool.length}개로는 6개 조합 불가. 제외수를 줄여주세요.` };
     }
-    const data = Store.read('data');
-    const last = new Set(data.lastNumbers||[]);
-    const history = data.history||[];
-    const ENABLE_G1_LIMIT = last.size>0;
-    const ENABLE_OVERLAP_RULE = history.length>0;
+
+    const history = (data && data.history) || [];
+    const ENABLE_G1_LIMIT = last.size>0;           // 직전 번호 편중 제한 ≤2
+    const ENABLE_OVERLAP_RULE = history.length>0;  // 전체 이력과 3개 이상 겹치면 제외
 
     function one(){
       const tmp = pool.slice();
@@ -112,29 +119,33 @@
     function passesConstraints(set){
       if (!validateBandCaps(set)) return false;
       if (ENABLE_G1_LIMIT){
-        let g1c=0; for(const n of set) if(last.has(n)) g1c++; if(g1c>2) return false;
+        let g1=0; for(const n of set) if(last.has(n)) g1++;
+        if (g1>2) return false;
       }
       if (ENABLE_OVERLAP_RULE){
         for (const h of history){
           const hv = new Set(h.numbers||[]);
           let inter=0; for(const n of set) if(hv.has(n)) inter++;
-          if (inter>=3) return false;
+          if (inter>=3) return false; // 1회~최근 전체와 비교
         }
       }
       return true;
     }
 
     const uniq=new Set(); const sets=[];
-    let guard=0, maxTry=targetCount*150;
+    let guard=0, maxTry=targetCount*200; // 제약 증가 → 탐색 상한 여유
     while(sets.length<targetCount && guard<maxTry){
       const s=one(); const key=s.join('-');
       if(!uniq.has(key) && passesConstraints(s)){ uniq.add(key); sets.push(s); }
       guard++;
     }
+
+    const out = { sets };
+    if (autoFreed.length>0) out.autoFreed = autoFreed.sort((a,b)=>a-b);
     if (sets.length<targetCount){
-      return { warning:`제약/제외수로 인해 ${sets.length}세트만 생성되었습니다. 제외수를 일부 줄여보세요.`, sets };
+      out.warning = `제약/제외수로 인해 ${sets.length}세트만 생성되었습니다. 제외수를 일부 줄이거나 제약을 완화하세요.`;
     }
-    return { sets };
+    return out;
   }
 
   function showLoading(text='계산 중...'){
@@ -146,7 +157,8 @@
   function Home(){
     const p = el('div',{class:'page'},
       Header('홈'),
-      Card(el('div',{class:'title'},'로또 Lab Pro'), el('div',{class:'desc'},'추천 엔진 제약 1차(밴드 상한) 적용(0.105).')),
+      Card(el('div',{class:'title'},'로또 Lab Pro'),
+          el('div',{class:'desc'},'추천 엔진 제약 2차(겹침≥3, G1≤2, 직전번호 제외 무시) 적용(0.106).')),
       Btn('당첨번호','blk',()=>go('/wins')),
       Btn('저장번호','blk',()=>go('/saved')),
       Btn('추천','blk',()=>go('/reco')),
@@ -181,30 +193,43 @@
   function Recommend(){
     const p = el('div',{class:'page'}, Header('추천'));
     const prefs = Store.read('prefs'); let exclusions = new Set(prefs.exclusions||[]);
-    const gridCard = Card(el('div',{class:'sub'},'제외수(탭하여 토글)'), el('div',{class:'chip-grid'}));
+    const data = Store.read('data');
+    const lastNums = new Set(data.lastNumbers||[]);
+
+    const gridCard = Card(el('div',{class:'sub'},'제외수(탭하여 토글) · 직전 번호는 자동 무시'),
+                          el('div',{class:'chip-grid'}));
     const grid = $('.chip-grid', gridCard);
     for(let n=1;n<=45;n++){
-      const chip=lottoChip(n,true,exclusions.has(n));
+      const isG1 = lastNums.has(n);
+      const hollow = exclusions.has(n) && !isG1; // 직전번호는 시각적으로 제외 상태를 강제 해제
+      const chip=lottoChip(n,true,hollow, isG1 ? 'g1' : '');
       chip.addEventListener('click',()=>{
+        if (isG1) return; // 직전 번호는 제외 불가
         if(exclusions.has(n)) exclusions.delete(n); else exclusions.add(n);
         chip.classList.toggle('hollow');
         const p=Store.read('prefs'); p.exclusions=Array.from(exclusions); Store.write('prefs', p);
       });
       grid.appendChild(chip);
     }
+
     const listArea=el('div',{class:'list'});
     const info=el('div',{class:'muted'},'표시 중: 0세트 (목표 30세트)');
-    const note=el('div',{class:'muted'},'적용 제약: 밴드 상한(1~39 ≤3, 40~45 ≤2). 겹침/G1 편중은 데이터 연동 후 활성.');
+    const note=el('div',{class:'muted'},'적용 제약: 밴드 상한(1~39 ≤3, 40~45 ≤2) · 겹침≥3 제외(1회~최근 전 구간) · G1≤2 · G1은 제외수 무시');
+
     const controls=el('div',{class:'row equal'},
       Btn('제외수 리셋','ghost',()=>{
-        exclusions=new Set(); $$('.chip-grid .chip',gridCard).forEach(c=>c.classList.remove('hollow'));
+        exclusions=new Set();
+        $$('.chip-grid .chip',gridCard).forEach(c=>c.classList.remove('hollow'));
         const p=Store.read('prefs'); p.exclusions=[]; Store.write('prefs',p);
       }),
       Btn('추천(30세트)','primary', async ()=>{
         const ov=showLoading('추천 계산 중...'); await new Promise(r=>setTimeout(r,2000)); ov.close();
-        const {sets,error,warning}=recommendSetsConstrained(30, Array.from(exclusions));
+        const {sets,error,warning,autoFreed}=recommendSetsConstrainedV2(30, Array.from(exclusions), data);
         listArea.innerHTML='';
         if(error){ listArea.appendChild(Card(el('div',{class:'warn'},error))); info.textContent='표시 중: 0세트 (목표 30세트)'; return; }
+        if (autoFreed && autoFreed.length){
+          listArea.appendChild(Card(el('div',{class:'desc'}, `직전 번호가 제외수에 포함되어 자동 해제됨: ${autoFreed.join(', ')}`)));
+        }
         const blocks=chunk(sets,5);
         blocks.forEach((blk,bi)=>{
           const c=Card(el('div',{class:'block-title'},`추천 세트 ${bi*5+1}~${bi*5+blk.length}`));
@@ -221,7 +246,11 @@
 
   function Wins(){ return el('div',{class:'page'}, Header('당첨번호'), Card(el('div',{class:'desc'},'다음 단계에서 연동됩니다.'))); }
   function Hall(){ return el('div',{class:'page'}, Header('명예의전당'), Card(el('div',{class:'desc'},'아직 기록이 없습니다.'))); }
-  function Analysis(){ return el('div',{class:'page'}, Header('분석'), Card(el('div',{class:'title'},'추천엔진 제약 1차'), el('div',{class:'desc'},'밴드 상한(1~39 ≤3, 40~45 ≤2) 적용. 겹침/G1 제한은 데이터 연동 후 활성화됩니다.')), Card(el('div',{class:'desc'},'버전: '+VERSION))); }
+  function Analysis(){ return el('div',{class:'page'}, Header('분석'),
+    Card(el('div',{class:'title'},'추천 엔진 제약 2차'),
+         el('div',{class:'desc'},'밴드 상한, 겹침≥3 제외, G1≤2, 직전번호 제외 무시 반영. 데이터(history/lastNumbers)가 존재할 때 자동 적용.')),
+    Card(el('div',{class:'desc'},'버전: '+VERSION))
+  ); }
 
   // ---------- mount/router ----------
   const ROOT=document.getElementById('app');

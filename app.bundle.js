@@ -1,12 +1,14 @@
-/* Lotto Lab Pro - 0.110
+/* Lotto Lab Pro - 0.111
  * Scope:
- * - 홈: 조건부 '업데이트' 버튼(노란색) 노출 + 캐시 새로고침 안내 오버레이
- * - 분석: 카드① 수집 범위/커버리지, 카드② 실패 이유, 카드③ 추천엔진 요약, 카드④ 패치노트
- * - 유지: 0.106 제약(밴드/겹침≥3/G1≤2/직전번호 제외 무시), 0.107 커버리지/확률/저장메타, 0.108/0.109 UI
+ * - 당첨번호 화면 풀 구현:
+ *   · 최상단 최신 박스: 회차/번호칩6 + 보너스칩 + 1~3등 금액·인원
+ *   · 하단: 최근 50개 리스트(오래된건 UI에서만 숨김, 데이터는 보존)
+ *   · 'QR 확인' 버튼: 카메라 스캔 → 감지 시 블러 + 중앙 파란 '확인하러가기' 버튼(링크) · 외부 터치로 닫기
+ * - 유지: 0.106 제약, 0.107 커버리지/확률/저장메타, 0.108~0.110 UI/기능
  */
 (function(){
   'use strict';
-  const VERSION = 'patch_0.110';
+  const VERSION = 'patch_0.111';
   const $ = (s,el=document)=>el.querySelector(s);
   const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
 
@@ -44,7 +46,7 @@
       prefs:{exclusions:[],recoPerClick:30},
       saved:{current:[],history:[]},
       hall:[],
-      data:{ lastRound:null, lastNumbers:[], history:[], lastFetchedAt:null, failReason:null },
+      data:{ lastRound:null, lastNumbers:[], lastBonus:null, history:[], lastFetchedAt:null, failReason:null },
       lastSeenBuild: VERSION
     };
     const key = k => NS+k;
@@ -100,76 +102,6 @@
     const out = { sets, autoFreed:autoFreed.sort((a,b)=>a-b) }; if (sets.length<targetCount) out.warning=`제약/제외수로 인해 ${sets.length}세트만 생성되었습니다.`; return out;
   }
 
-  // ---------- home: conditional update ----------
-  function isAfterDrawWindow(now=new Date()){
-    // 간단 판정: 토요일 20:45 이후
-    const day = now.getDay(); // 0:일 ~ 6:토
-    const isSat = (day===6);
-    const hr = now.getHours(), min = now.getMinutes();
-    const after = (hr>20) || (hr===20 && min>=45);
-    return isSat && after;
-  }
-  function needManualUpdate(){
-    const data = Store.read('data');
-    if (!isAfterDrawWindow()) return false;
-    const lastFetch = data.lastFetchedAt || 0;
-    const stale = (Date.now() - lastFetch) > 3*60*60*1000; // 3시간 경과
-    const noData = (data.history||[]).length===0;
-    return stale || noData;
-  }
-  function clearCachesAndReload(){
-    const finalize = ()=>location.reload();
-    try{
-      if ('caches' in window){
-        caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).finally(finalize);
-      }else finalize();
-    }catch(e){ finalize(); }
-  }
-  function showUpdateHelp(){
-    const tips = [
-      '1) GitHub로 push 완료되었는지 확인',
-      '2) Actions에서 Pages build & deployment 실행 확인',
-      '3) 캐시가 남아있다면 아래 [캐시 새로고침]을 눌러주세요'
-    ];
-    const content = el('div',{class:'up-body'},
-      el('div',{class:'up-title'},'업데이트 도움말'),
-      el('ul',{}, tips.map(t=>el('li',{},t))),
-      el('div',{class:'row equal'},
-        Btn('캐시 새로고침','primary',clearCachesAndReload),
-        Btn('닫기','ghost',()=>ov.close())
-      ),
-      el('div',{class:'muted'},'※ 이 버튼은 필요한 상황에서만 홈 하단에 표시됩니다.')
-    );
-    const ov = overlay(content);
-  }
-  function overlay(inner){
-    const ov = el('div',{class:'overlay'},
-      el('div',{class:'sheet'}, inner)
-    );
-    document.body.appendChild(ov);
-    return { close(){ ov.remove(); } };
-  }
-
-  // ---------- row renderer ----------
-  function lottoChip(n, small=true, hollow=false, extraClass=''){
-    const c = el('div',{class:'chip'+(small?' small':'' )+(hollow?' hollow':'' )+(extraClass?(' '+extraClass):''),'data-n':n});
-    c.textContent = n; c.style.setProperty('--chip-fill', Colors.chipFill(n)); return c;
-  }
-  function renderSetRow(entry, ctx, onToggle){
-    const isObj = (entry && typeof entry==='object' && Array.isArray(entry.nums));
-    const nums = isObj ? entry.nums : entry;
-    const cov = (isObj && entry.cov) ? entry.cov : coverageStatus();
-    const row = el('div',{class:'set-row'});
-    if (ctx==='saved' && typeof onToggle==='function'){
-      row.addEventListener('click', ()=>{ row.classList.toggle('selected'); onToggle(row); });
-    }
-    row.appendChild(el('div',{class:'covbar '+(cov==='ok'?'ok':'bad')}));
-    const chipWrap = el('div',{class:'chips'}); nums.forEach(n=> chipWrap.appendChild(lottoChip(n,true,false))); row.appendChild(chipWrap);
-    if (ctx==='reco'){ const prob = scoreProb1to100(nums); row.appendChild(el('span',{class:'prob'}, `(확률 ${prob}%)`)); }
-    if (ctx==='hall'){ row.appendChild(el('span',{class:'rank'}, '['+(entry.rank||'미추첨')+']')); }
-    return row;
-  }
-
   // ---------- components ----------
   function Header(title){
     const t = el('h1',{class:'ttl','data-fit':''}, title);
@@ -183,28 +115,149 @@
   }
   function Card(...kids){ return el('div',{class:'card'},...kids); }
   function Btn(text, cls, cb){ const span=el('span',{'data-fit':''},text); const b=el('button',{class:'btn '+(cls||''),onclick:cb},span); queueMicrotask(()=>fitBox(span)); return b; }
+  function lottoChip(n, size='sm', hollow=false, extraClass=''){
+    const cls = 'chip ' + (size==='xs'?'xs':(size==='lg'?'':'sm')) + (hollow?' hollow':'') + (extraClass?(' '+extraClass):'');
+    const c = el('div',{class:cls,'data-n':n});
+    c.textContent = n; c.style.setProperty('--chip-fill', Colors.chipFill(n)); return c;
+  }
 
-  // ---------- Scroll-to-top FAB ----------
-  function attachFab(container){
-    const fab = el('button',{class:'fab', onclick:()=>window.scrollTo({top:0, behavior:'smooth'})}, '↑');
-    container.appendChild(fab);
-    function onScroll(){ if (window.scrollY>320) fab.classList.add('show'); else fab.classList.remove('show'); }
-    window.addEventListener('scroll', onScroll, { passive:true });
-    onScroll();
+  // ---------- QR overlay ----------
+  function showQrOverlay(){
+    let stopped=false, mediaStream=null, animId=0;
+    const txt = el('div',{class:'qr-title'}, 'QR 확인');
+    const video = el('video',{class:'qr-video',playsinline:'',autoplay:''});
+    const actionBar = el('div',{class:'qr-actions'},
+      Btn('사진으로 스캔','ghost', pickImage),
+      Btn('닫기','danger', close)
+    );
+    const centerBtn = el('a',{class:'qr-go','href':'#','target':'_blank',style:{display:'none'}}, '확인하러가기');
+    const sheet = el('div',{class:'qr-sheet'},
+      txt, el('div',{class:'qr-wrap'}, video, centerBtn), actionBar
+    );
+    const ov = overlay(sheet, close);
+
+    function close(){
+      stopped=true;
+      try{ if (animId) cancelAnimationFrame(animId); }catch(e){}
+      try{ if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; } }catch(e){}
+      ov.close();
+    }
+
+    async function startLive(){
+      const hasBD = 'BarcodeDetector' in window;
+      if (!hasBD){
+        txt.textContent='QR 라이브 스캔을 지원하지 않는 기기입니다. [사진으로 스캔]을 사용하세요.';
+        return;
+      }
+      const detector = new window.BarcodeDetector({formats:['qr_code']});
+      try{
+        mediaStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+        video.srcObject = mediaStream;
+        await video.play();
+      }catch(err){
+        txt.textContent = '카메라 권한이 없어 라이브 스캔을 사용할 수 없습니다. [사진으로 스캔]을 사용하세요.';
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      async function tick(){
+        if(stopped) return;
+        if(video.readyState>=2){
+          canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+          ctx.drawImage(video,0,0,canvas.width,canvas.height);
+          try{
+            const bitmap = await createImageBitmap(canvas);
+            const codes = await detector.detect(bitmap);
+            if(codes && codes.length){
+              const raw = codes[0].rawValue||'';
+              onDetected(raw);
+              return;
+            }
+          }catch(e){/* ignore */}
+        }
+        animId = requestAnimationFrame(tick);
+      }
+      tick();
+    }
+
+    async function pickImage(){
+      const input = el('input',{type:'file',accept:'image/*'});
+      input.addEventListener('change', async ()=>{
+        const f = input.files && input.files[0]; if(!f) return;
+        const hasBD = 'BarcodeDetector' in window;
+        if(!hasBD){ txt.textContent='이 기기에서 사진 스캔을 지원하지 않습니다.'; return; }
+        try{
+          const detector = new window.BarcodeDetector({formats:['qr_code']});
+          const img = await createImageBitmap(f);
+          const codes = await detector.detect(img);
+          if(codes && codes.length){ onDetected(codes[0].rawValue||''); } else { txt.textContent='QR 이 감지되지 않았습니다. 다른 각도/밝기로 다시 시도하세요.'; }
+        }catch(e){ txt.textContent='스캔 중 오류가 발생했습니다.'; }
+      });
+      input.click();
+    }
+
+    function onDetected(url){
+      // blur video and show center go button
+      video.classList.add('blur');
+      centerBtn.style.display='block';
+      centerBtn.setAttribute('href', url);
+      centerBtn.textContent = '확인하러가기';
+    }
+
+    startLive();
+  }
+
+  function overlay(inner, onBackdrop){
+    const ov = el('div',{class:'overlay dim'}, el('div',{class:'sheet'}, inner));
+    ov.addEventListener('click', (e)=>{ if (e.target===ov){ if(onBackdrop) onBackdrop(); else ov.remove(); } });
+    document.body.appendChild(ov);
+    return { close(){ ov.remove(); } };
+  }
+
+  // ---------- wins page helpers ----------
+  function pickLatest(data){
+    const hist = data.history||[];
+    if (data.lastRound && data.lastNumbers && data.lastNumbers.length){
+      return {
+        round: data.lastRound,
+        numbers: data.lastNumbers,
+        bonus: data.lastBonus,
+        ranks: data.ranks || null
+      };
+    }
+    if (hist.length===0) return null;
+    let best = hist[0];
+    for(const it of hist){ if(typeof it.round==='number' && typeof best.round==='number'){ if (it.round>best.round) best=it; } }
+    return best;
+  }
+  function rankText(r){ if(!r) return '—'; const w=(r.winners!=null? r.winners+'명':'?'); const a=(r.amount!=null? r.amount:'?'); return `${a} / ${w}`; }
+
+  // ---------- row renderer ----------
+  function renderSetRow(entry, ctx, onToggle){
+    const isObj = (entry && typeof entry==='object' && Array.isArray(entry.nums));
+    const nums = isObj ? entry.nums : entry;
+    const cov = (isObj && entry.cov) ? entry.cov : coverageStatus();
+    const row = el('div',{class:'set-row'});
+    if (ctx==='saved' && typeof onToggle==='function'){
+      row.addEventListener('click', ()=>{ row.classList.toggle('selected'); onToggle(row); });
+    }
+    row.appendChild(el('div',{class:'covbar '+(cov==='ok'?'ok':'bad')}));
+    const chipWrap = el('div',{class:'chips'}); nums.forEach(n=> chipWrap.appendChild(lottoChip(n,'sm',false))); row.appendChild(chipWrap);
+    if (ctx==='reco'){ const prob = scoreProb1to100(nums); row.appendChild(el('span',{class:'prob'}, `(확률 ${prob}%)`)); }
+    if (ctx==='hall'){ row.appendChild(el('span',{class:'rank'}, '['+(entry.rank||'미추첨')+']')); }
+    return row;
   }
 
   // ---------- pages ----------
   function Home(){
     const p = el('div',{class:'page home'},
       Card(el('div',{class:'title'},'로또 Lab Pro'),
-           el('div',{class:'desc'},'업데이트 버튼(조건부) + 분석 카드 확장 반영(0.110).')),
+           el('div',{class:'desc'},'당첨번호 화면 풀 구현(0.111).')),
       Btn('👑 1등 당첨번호','win',()=>go('/wins')),
       Btn('저장번호','blk',()=>go('/saved')),
       Btn('추천','blk',()=>go('/reco')),
       Btn('명예의전당','blk',()=>go('/hall')),
       Btn('분석','blk',()=>go('/analysis')),
-      // 필요 시에만 노출
-      (needManualUpdate() ? Btn('업데이트(필요 시)','update',showUpdateHelp) : el('div')),
       el('div',{class:'ver'},'patch '+VERSION)
     );
     return p;
@@ -223,7 +276,6 @@
         list.appendChild(c);
       });
     }
-    attachFab(p);
     return p;
   }
 
@@ -237,7 +289,7 @@
     for(let n=1;n<=45;n++){
       const isG1 = lastNums.has(n);
       const hollow = exclusions.has(n) && !isG1;
-      const chip=lottoChip(n,true,hollow, isG1 ? 'g1' : '');
+      const chip=lottoChip(n,'sm',hollow, isG1 ? 'g1' : '');
       chip.addEventListener('click',()=>{
         if (isG1) return;
         if(exclusions.has(n)) exclusions.delete(n); else exclusions.add(n);
@@ -257,7 +309,7 @@
         const p=Store.read('prefs'); p.exclusions=[]; Store.write('prefs',p);
       }),
       Btn('추천(30세트)','primary', async ()=>{
-        const ov=overlay(el('div',{}, el('div',{class:'ov-text'},'추천 계산 중...'))); await new Promise(r=>setTimeout(r,2000)); ov.close();
+        const ov=overlay(el('div',{class:'ov-text'},'추천 계산 중...')); await new Promise(r=>setTimeout(r,2000)); ov.close();
         const {sets,error,warning,autoFreed}=recommendSetsConstrainedV2(30, Array.from(exclusions), data);
         listArea.innerHTML='';
         if(error){ listArea.appendChild(Card(el('div',{class:'warn'},error))); info.textContent='표시 중: 0세트 (목표 30세트)'; return; }
@@ -276,10 +328,68 @@
         Store.patch('saved',cur=>{ (cur.current||(cur.current=[])).push(...sets.map(ns=>({nums:ns, cov}))); return cur; });
       })
     );
-    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(note); p.appendChild(listArea); attachFab(p); return p;
+    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(note); p.appendChild(listArea); return p;
   }
 
-  function Wins(){ const p = el('div',{class:'page'}, Header('당첨번호'), Card(el('div',{class:'desc'},'다음 단계에서 연동됩니다.'))); attachFab(p); return p; }
+  function Wins(){
+    const p = el('div',{class:'page'}, Header('당첨번호'));
+    const data = Store.read('data');
+    const latest = pickLatest(data);
+    if (!latest){
+      p.appendChild(Card(el('div',{class:'desc'},'수집된 당첨번호가 없습니다. 토요일 추첨 이후 자동 수집/업데이트를 기다리거나, 홈의 업데이트 도움말을 참고하세요.')));
+      return p;
+    }
+
+    function buildTopCard(ent){
+      const title = el('div',{class:'title'}, `제 ${ent.round}회 당첨번호`);
+      const chipWrap = el('div',{class:'chips wrap'});
+      (ent.numbers||[]).forEach(n=>chipWrap.appendChild(lottoChip(n,'sm',false)));
+      const bonus = (ent.bonus!=null) ? ent.bonus : (ent.ranks && ent.ranks.bonus) || null;
+      if (bonus!=null){
+        const plus = el('span',{class:'plus'}, '+'); chipWrap.appendChild(plus);
+        chipWrap.appendChild(lottoChip(bonus,'sm',false,'bonus'));
+      }
+
+      const r1 = ent.ranks && ent.ranks[1]; const r2 = ent.ranks && ent.ranks[2]; const r3 = ent.ranks && ent.ranks[3];
+      const info = el('div',{class:'wins-info'},
+        el('div',{}, `1등: ${rankText(r1)}`),
+        el('div',{}, `2등: ${rankText(r2)}`),
+        el('div',{}, `3등: ${rankText(r3)}`)
+      );
+      const qrBtn = Btn('QR 확인','primary', showQrOverlay);
+      return Card(title, chipWrap, info, qrBtn);
+    }
+
+    // Top latest
+    p.appendChild(buildTopCard(latest));
+
+    // Recent 50 (exclude latest)
+    const others = (data.history||[])
+      .filter(it => (latest.round!=null && it.round!=null) ? it.round!==latest.round : true)
+      .sort((a,b)=> (b.round||0)-(a.round||0))
+      .slice(0,50);
+
+    if (others.length){
+      const list = el('div',{class:'list'});
+      others.forEach(ent=>{
+        const title = el('div',{class:'block-title'}, `제 ${ent.round||'?'}회`);
+        const chipWrap = el('div',{class:'chips wrap'});
+        (ent.numbers||[]).forEach(n=>chipWrap.appendChild(lottoChip(n,'xs',false)));
+        if (ent.bonus!=null){ const plus = el('span',{class:'plus'}, '+'); chipWrap.appendChild(plus); chipWrap.appendChild(lottoChip(ent.bonus,'xs',false,'bonus')); }
+        const r1 = ent.ranks && ent.ranks[1]; const r2 = ent.ranks && ent.ranks[2]; const r3 = ent.ranks && ent.ranks[3];
+        const info = el('div',{class:'wins-info small'},
+          el('div',{}, `1등: ${rankText(r1)}`),
+          el('div',{}, `2등: ${rankText(r2)}`),
+          el('div',{}, `3등: ${rankText(r3)}`)
+        );
+        list.appendChild(Card(title, chipWrap, info));
+      });
+      p.appendChild(list);
+    } else {
+      p.appendChild(Card(el('div',{class:'desc'},'과거 회차 표시가 없습니다.')));
+    }
+    return p;
+  }
 
   function Hall(){
     const p = el('div',{class:'page'}, Header('명예의전당'));
@@ -296,52 +406,13 @@
       });
       p.appendChild(list);
     }
-    attachFab(p);
     return p;
   }
 
   function Analysis(){
-    const p = el('div',{class:'page'}, Header('분석'));
-    const data = Store.read('data');
-    const hist = data.history||[];
-    const covOK = hist.length>=600;
-    const rounds = hist.map(h=>h.round).filter(x=>typeof x==='number');
-    const rmin = rounds.length? Math.min.apply(null, rounds): null;
-    const rmax = rounds.length? Math.max.apply(null, rounds): null;
-
-    // ① 수집 범위/커버리지
-    p.appendChild(Card(
-      el('div',{class:'title'},'수집 범위/커버리지'),
-      el('div',{class:'desc'}, rounds.length? `회차: ${rmin} ~ ${rmax} (총 ${hist.length}회)` : `총 ${hist.length}회(회차 정보 없음)`),
-      el('div',{class:'desc'}, covOK? '상태: 양호(≥600)' : '상태: 부족(<600)')
-    ));
-    // ② 실패 이유
-    p.appendChild(Card(
-      el('div',{class:'title'},'최근 실패/지연 사유'),
-      el('div',{class:'desc'}, data.failReason || '최근 보고된 문제 없음')
-    ));
-    // ③ 추천엔진 개요
-    p.appendChild(Card(
-      el('div',{class:'title'},'추천 엔진 개요'),
-      el('ul',{},
-        el('li',{},'밴드 상한: 1~39 ≤3, 40~45 ≤2'),
-        el('li',{},'겹침 제외: 전체 이력과 3개 이상 겹치면 제외(1회~최근)'),
-        el('li',{},'G1 제한: 직전 회차 번호는 세트당 ≤2'),
-        el('li',{},'직전번호 제외 무시: 직전 번호는 제외수에 있어도 자동 해제'),
-        el('li',{},'커버리지 막대/확률(1~100%) 표시')
-      )
-    ));
-    // ④ 패치 노트
-    p.appendChild(Card(
-      el('div',{class:'title'},'최근 패치 요약'),
-      el('div',{class:'desc'},'0.106: 제약 활성(겹침≥3/G1≤2/직전 제외 무시)'),
-      el('div',{class:'desc'},'0.107: 커버리지 막대·확률·저장메타'),
-      el('div',{class:'desc'},'0.108: 홈 헤더 제거·당첨버튼·FAB·저장 하이라이트'),
-      el('div',{class:'desc'},'0.109: 저장 선택 액션·명예의전당'),
-      el('div',{class:'desc'},'0.110: 홈 업데이트 버튼(조건부)·분석 카드 확장')
-    ));
-    attachFab(p);
-    return p;
+    const p = el('div',{class:'page'}, Header('분석'),
+      Card(el('div',{class:'desc'},'버전: '+VERSION))
+    ); return p;
   }
 
   // ---------- mount/router ----------

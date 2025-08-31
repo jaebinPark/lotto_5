@@ -6,44 +6,42 @@
 .hdr .sp{width:44px}
 .hdr .home{position:absolute;right:10px;width:44px;height:44px;border-radius:12px;border:none;background:#EFE6DA;box-shadow:0 1px 0 rgba(0,0,0,.06);font-size:20px;cursor:pointer}
 .card{background:var(--card);border-radius:20px;box-shadow:var(--shadow);padding:16px 18px;margin:12px 2px}
-.title{font-weight:900;margin-bottom:6px} .desc{opacity:.9;line-height:1.5} .sub{opacity:.7;font-weight:700;margin-bottom:10px}
+.title{font-weight:900;margin-bottom:6px} .desc{opacity:.9;line-height:1.5}
 .block-title{font-weight:800;margin:6px 0 8px}
 .ver{text-align:center;margin-top:18px;opacity:.58}
 .btn{display:block;width:100%;padding:18px 16px;border-radius:16px;border:0;background:var(--btn);font-weight:800;box-shadow:var(--shadow);cursor:pointer}
-.btn.blk{margin:8px 0} .btn.ghost{background:#EADFCC} .btn.primary{background:var(--btnP)} .btn.danger{background:var(--btnD);color:#fff}
-/* 특수 당첨 버튼 */
-.btn.win{background:#E74C3C;color:#fff;position:relative}
-.btn.win span::before{content:'👑 1등 ';margin-right:6px}
-/* 홈: 업데이트 버튼 */
-.btn.update{background:#FFD567;color:#2E2A26}
+.btn.blk{margin:8px 0} .btn.primary{background:var(--btnP)} .btn.danger{background:var(--btnD);color:#fff}
 .row{display:flex;gap:12px;flex-wrap:wrap} .row.equal .btn{flex:1}
 .list{margin-bottom:56px}
 .set-row{display:flex;gap:10px;padding:8px 10px;flex-wrap:wrap;align-items:center;border-radius:12px;transition:background .15s}
-.set-row.selected{background:#E6F4FF}
 .set-row .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{--chip-fill:#ddd;min-width:26px;height:26px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;border:3px solid #0000;color:#fff;background:var(--chip-fill);box-sizing:border-box;font-size:13px}
-.chip.small{min-width:24px;height:24px;font-size:12px}
+.chip.sm{min-width:26px;height:26px;font-size:13px}
+.chip.xs{min-width:22px;height:22px;font-size:11px}
 .chip.hollow{background:transparent;border:2.5px solid #2E2A26;color:#2E2A26}
-.chip.neutral{background:#FBF6F0;border:2px solid #2E2A26;color:#2E2A26}
-/* 직전 회차 칩 강조 */
 .chip.g1{box-shadow:inset 0 0 0 2px gold}
+/* bonus small tweak */
+.chip.bonus{box-shadow:inset 0 0 0 2px #1e90ff}
+.plus{margin:0 6px;font-weight:900}
 /* coverage bar */
 .covbar{width:6px;height:26px;border-radius:4px}
 .covbar.ok{background:#4AA3FF}
 .covbar.bad{background:#E74C3C}
-.prob{margin-left:8px;font-weight:800;opacity:.8;white-space:nowrap}
-.rank{margin-left:8px;font-weight:900;opacity:.85;white-space:nowrap}
-.chip-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(24px,1fr));gap:8px}
-@media (min-width:360px){ .chip{min-width:28px;height:28px;font-size:14px} .chip.small{min-width:26px;height:26px;font-size:13px} .covbar{height:28px} }
-@media (min-width:414px){ .chip{min-width:30px;height:30px;font-size:15px} .chip.small{min-width:28px;height:28px;font-size:14px} .covbar{height:30px} }
-@media (min-width:480px){ .chip{min-width:32px;height:32px;font-size:16px} .chip.small{min-width:30px;height:30px;font-size:15px} .covbar{height:32px} }
-/* scroll-to-top FAB */
-.fab{position:fixed;right:16px;bottom:22px;width:52px;height:52px;border-radius:50%;border:0;background:#2DBE75;color:#fff;font-size:22px;box-shadow:0 10px 22px rgba(0,0,0,.2);opacity:0;transform:translateY(12px);pointer-events:none;transition:.2s}
-.fab.show{opacity:1;transform:none;pointer-events:auto}
-/* overlay sheet for update help */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:99}
-.sheet{background:#fff;max-width:520px;width:92vw;border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.25);padding:18px}
-.up-title{font-weight:900;margin-bottom:8px}
-.up-body ul{margin:8px 0 14px 18px}
+/* wins page extra */
+.chips.wrap{flex-wrap:wrap}
+.wins-info{display:grid;grid-template-columns:1fr;gap:6px;margin-top:10px;font-weight:700}
+.wins-info.small{font-size:12px;opacity:.9}
+/* QR overlay */
+.overlay.dim{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99}
+.sheet{background:#fff;max-width:560px;width:92vw;border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.25);padding:16px}
+.qr-title{font-weight:900;margin-bottom:8px}
+.qr-wrap{position:relative;overflow:hidden;border-radius:12px;background:#000}
+.qr-video{width:100%;max-height:60vh;display:block;filter:none;transition:filter .2s}
+.qr-video.blur{filter:blur(6px) brightness(.6)}
+.qr-go{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 16px;border-radius:12px;background:rgba(30,144,255,.92);color:#fff;font-weight:900;text-decoration:none;backdrop-filter:saturate(1.2);}
+.qr-actions{display:flex;gap:10px;margin-top:10px}
 .ov-text{font-weight:800}
-.muted{opacity:.65;font-size:12px} .warn{color:#8a1010;font-weight:800}
+.muted{opacity:.65;font-size:12px}
+@media (min-width:360px){ .chip.sm{min-width:28px;height:28px;font-size:14px} .chip.xs{min-width:24px;height:24px;font-size:12px} }
+@media (min-width:414px){ .chip.sm{min-width:30px;height:30px;font-size:15px} .chip.xs{min-width:26px;height:26px;font-size:13px} }
+@media (min-width:480px){ .chip.sm{min-width:32px;height:32px;font-size:16px} .chip.xs{min-width:28px;height:28px;font-size:14px} }

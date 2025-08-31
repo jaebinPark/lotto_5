@@ -1,13 +1,13 @@
-/* Lotto Lab Pro - 0.115
+\
+/* Lotto Lab Pro - 0.116
  * Scope:
- * - 홈: 조건부 '업데이트' 버튼(필요시에만 노출, 패치글자 위) + 강제 갱신(forceUpdate)
- * - 업데이트 토스트: 새 버전 적용 시 '업데이트되었습니다 (patch_xxx)' 알림
- * - Hall 소소한 정리(건수·최근순 표기)
- * - 유지/통합: 0.111(당첨+QR) · 0.112(자동 정리/Hall) · 0.113(추천 UX) · 0.114(분석 프롬프트/패치 기록)
+ * - 0.115 기반 유지: 홈 조건부 '업데이트' 버튼 + 업데이트 토스트, 추천 UX, 저장 자동정리/Hall
+ * - 복원/보강: QR 스캔 오버레이(당첨 화면), 분석 화면 '프롬프트' 모달 + 패치 기록 카드
+ * - 공통 FAB(↑) 안전하게 포함
  */
 (function(){
   'use strict';
-  const VERSION = 'patch_0.115';
+  const VERSION = 'patch_0.116';
   const $ = (s,el=document)=>el.querySelector(s);
   const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
 
@@ -58,11 +58,11 @@
   // ---------- theming ----------
   const Colors = {
     chipFill(n){
-      if(n<=10) return '#F4C64E';
-      if(n<=20) return '#5B8DEF';
-      if(n<=30) return '#F06C6C';
-      if(n<=40) return '#B9BDC4';
-      return '#2DBE75';
+      if(n<=10) return '#F4C64E';      // 노랑
+      if(n<=20) return '#5B8DEF';      // 파랑
+      if(n<=30) return '#F06C6C';      // 빨강
+      if(n<=40) return '#B9BDC4';      // 회색
+      return '#2DBE75';                // 초록
     }
   };
 
@@ -73,7 +73,7 @@
   }
   function scoreProb1to100(nums){ let h = 7; for(const n of nums) h = (h*131 + n*17) % 1000; return (h % 100) + 1; }
 
-  // ---------- recommend constraints (유지) ----------
+  // ---------- recommend constraints ----------
   const BAND_CAPS = { a:[1,9,3], b:[10,19,3], c:[20,29,3], d:[30,39,3], e:[40,45,2] };
   function bandKey(n){ if(n<=9) return 'a'; if(n<=19) return 'b'; if(n<=29) return 'c'; if(n<=39) return 'd'; return 'e'; }
   function validateBandCaps(set){
@@ -82,14 +82,13 @@
     return (cnt.a<=BAND_CAPS.a[2] && cnt.b<=BAND_CAPS.b[2] && cnt.c<=BAND_CAPS.c[2] && cnt.d<=BAND_CAPS.d[2] && cnt.e<=BAND_CAPS.e[2]);
   }
 
-  // ---------- QR overlay (재사용) ----------
+  // ---------- overlay / toast ----------
   function overlay(inner, onBackdrop){
     const ov = el('div',{class:'overlay dim'}, el('div',{class:'sheet'}, inner));
     ov.addEventListener('click', (e)=>{ if (e.target===ov){ if(onBackdrop) onBackdrop(); else ov.remove(); } });
     document.body.appendChild(ov);
     return { close(){ ov.remove(); } };
   }
-
   function showToast(msg){
     const t = el('div',{class:'toast'}, msg);
     document.body.appendChild(t);
@@ -97,13 +96,10 @@
     setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 250); }, 2200);
   }
 
-  // ---------- KST helpers ----------
+  // ---------- KST helpers & update button ----------
   function kstNow(){ const now = Date.now(); const diffMin = 540 - new Date().getTimezoneOffset(); return new Date(now + diffMin*60000); }
   function isSaturdayEveningKST(){
-    const d = kstNow();
-    const day = d.getUTCDay(); // after shifting, UTC day equals KST day reference here
-    const h = d.getUTCHours();
-    // KST evening ~ 20:00-23:59 → after shift, still 20-23
+    const d = kstNow(); const day = d.getUTCDay(); const h = d.getUTCHours();
     return (day===6) && (h>=20 && h<=23);
   }
   function shouldShowUpdateButton(data){
@@ -112,29 +108,37 @@
     const saturdayLag = isSaturdayEveningKST() && ((Date.now()-last) > 2*60*60*1000);
     return failed || saturdayLag;
   }
-
   async function forceUpdate(){
     const ov = overlay(el('div',{}, el('div',{class:'title'},'업데이트 점검 중...'), el('div',{class:'desc'},'캐시 정리 및 새 파일 확인 중입니다.')));
     try{
-      // 1) CacheStorage 비우기
       if ('caches' in window){
         const keys = await caches.keys();
         await Promise.all(keys.map(k=> caches.delete(k)));
       }
-      // 2) SW 해제
       if ('serviceWorker' in navigator){
         const regs = await navigator.serviceWorker.getRegistrations();
         await Promise.all(regs.map(r=> r.unregister()));
       }
-    }catch(e){ /* 무시: 일부 환경에서 권한/지원X */ }
+    }catch(e){}
     setTimeout(()=>{
       ov.close();
-      // 쿼리스트링을 바꿔서 강제 재검사
       const url = new URL(location.href);
       url.searchParams.set('ts', Date.now().toString());
       location.href = url.toString();
       location.reload();
     }, 600);
+  }
+
+  // ---------- FAB (scroll-to-top) ----------
+  function attachFab(page){
+    const btn = el('button', { class:'fab', onclick:()=>window.scrollTo({top:0, behavior:'smooth'}) }, '↑');
+    page.appendChild(btn);
+    function onScroll(){
+      const y = (window.pageYOffset || document.documentElement.scrollTop || 0);
+      if (y > 180) btn.classList.add('show'); else btn.classList.remove('show');
+    }
+    window.addEventListener('scroll', onScroll, { passive:true });
+    onScroll();
   }
 
   // ---------- wins helpers ----------
@@ -168,7 +172,7 @@
     return {rankNum:r, rankLabel:label, matches:m, bonus:b};
   }
 
-  // ---------- auto-settle on load (0.112) ----------
+  // ---------- auto-settle on load ----------
   function settleResultsIfNeeded(){
     const data = Store.read('data'); const lastRound = data.lastRound;
     if (!lastRound) return;
@@ -212,25 +216,134 @@
     const c = el('div',{class:cls,'data-n':n});
     c.textContent = n; c.style.setProperty('--chip-fill', Colors.chipFill(n)); return c;
   }
+  function renderSetRow(entry, ctx){
+    const isObj = (entry && typeof entry==='object' && Array.isArray(entry.nums));
+    const nums = isObj ? entry.nums : entry;
+    const cov = (isObj && entry.cov) ? entry.cov : coverageStatus();
+    const row = el('div',{class:'set-row'});
+    row.appendChild(el('div',{class:'covbar '+(cov==='ok'?'ok':'bad')}));
+    const chipWrap = el('div',{class:'chips'}); nums.forEach(n=> chipWrap.appendChild(lottoChip(n,'sm',false))); row.appendChild(chipWrap);
+    if (ctx==='reco'){ const prob = scoreProb1to100(nums); row.appendChild(el('span',{class:'prob'}, `(확률 ${prob}%)`)); }
+    if (ctx==='hall'){ row.appendChild(el('span',{class:'rank'}, '['+(entry.rank||'미추첨')+']')); }
+    if (ctx==='history'){ row.appendChild(el('span',{class:'badge-rank'}, '['+(entry.rank||'미추첨')+']')); }
+    return row;
+  }
+
+  // ---------- QR overlay ----------
+  function showQrOverlay(){
+    let stopped=false, mediaStream=null, animId=0;
+    const title = el('div',{class:'qr-title'}, 'QR 확인');
+    const video = el('video',{class:'qr-video',playsinline:'',autoplay:''});
+    const hint = el('div',{class:'desc'}, '카메라 허용 후 QR을 화면 가운데에 맞춰주세요.');
+    const centerBtn = el('a',{class:'qr-go','href':'#','target':'_blank',style:{display:'none'}}, '확인하러가기');
+    const actionBar = el('div',{class:'qr-actions'},
+      Btn('사진으로 스캔','ghost', pickImage),
+      Btn('닫기','danger', close)
+    );
+    const sheet = el('div',{class:'qr-sheet'}, title, hint, el('div',{class:'qr-wrap'}, video, centerBtn), actionBar);
+    const ov = overlay(sheet, close);
+
+    function close(){
+      stopped=true;
+      try{ if (animId) cancelAnimationFrame(animId); }catch(e){}
+      try{ if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; } }catch(e){}
+      ov.close();
+    }
+
+    async function startLive(){
+      const hasBD = 'BarcodeDetector' in window;
+      if (!hasBD){
+        hint.textContent='이 기기에서 라이브 스캔을 지원하지 않습니다. [사진으로 스캔]을 이용하세요.';
+        return;
+      }
+      const detector = new window.BarcodeDetector({formats:['qr_code']});
+      try{
+        mediaStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+        video.srcObject = mediaStream;
+        await video.play();
+      }catch(err){
+        hint.textContent='카메라 권한이 없습니다. [사진으로 스캔]을 이용하세요.';
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      async function tick(){
+        if(stopped) return;
+        if(video.readyState>=2){
+          canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+          ctx.drawImage(video,0,0,canvas.width,canvas.height);
+          try{
+            const bitmap = await createImageBitmap(canvas);
+            const codes = await detector.detect(bitmap);
+            if(codes && codes.length){
+              const raw = codes[0].rawValue||''; onDetected(raw); return;
+            }
+          }catch(e){}
+        }
+        animId = requestAnimationFrame(tick);
+      }
+      tick();
+    }
+
+    async function pickImage(){
+      const input = el('input',{type:'file',accept:'image/*'});
+      input.addEventListener('change', async ()=>{
+        const f = input.files && input.files[0]; if(!f) return;
+        const hasBD = 'BarcodeDetector' in window;
+        if(!hasBD){ hint.textContent='이 기기에서 사진 스캔을 지원하지 않습니다.'; return; }
+        try{
+          const detector = new window.BarcodeDetector({formats:['qr_code']});
+          const img = await createImageBitmap(f);
+          const codes = await detector.detect(img);
+          if(codes && codes.length){ onDetected(codes[0].rawValue||''); } else { hint.textContent='QR 이 감지되지 않았습니다.'; }
+        }catch(e){ hint.textContent='스캔 중 오류가 발생했습니다.'; }
+      });
+      input.click();
+    }
+
+    function onDetected(url){
+      video.classList.add('blur');
+      centerBtn.style.display='block';
+      centerBtn.setAttribute('href', url);
+      centerBtn.textContent = '확인하러가기';
+    }
+
+    startLive();
+  }
+
+  // ---------- prompt + patch log (Analysis) ----------
+  const PROMPT_SUMMARY = [
+    'UI/색상: 배경 파스텔 베이지(#FBF6F0), 카드·버튼 연한 베이지, 텍스트 #2E2A26.',
+    '번호칩 색: 1–10 노랑, 11–20 파랑, 21–30 빨강, 31–40 회색, 41–45 초록(글자 흰색).',
+    '홈: 상단 30px, 버튼(당첨/저장/추천/명예의전당/분석). 필요 시 하단 업데이트 버튼.',
+    '당첨: 최신 박스(6+보너스, 1~3등 금액/인원, QR), 아래 최근 50 나열.',
+    '저장: 추천 시 자동 저장(5×6=30 세트). 최신회차 반영 시 자동 정리→과거, 1~3등은 Hall 축적.',
+    '추천: 제외수 토글(직전번호 자동 무시), 제약=밴드(1~39 ≤3, 40~45 ≤2)·G1≤2·겹침≥3 제외·분포 보장, 확률 1~100, 30세트 생성.',
+    '분석: 수집 범위/실패사유/엔진 개요/패치 기록 + 프롬프트 버튼.'
+  ].join('\n');
+  const PATCH_LOG = [
+    {v:'0.110', m:'홈 업데이트 안내/조건부 버튼 기반.'},
+    {v:'0.111', m:'당첨 최신+보너스+1~3등 금액/인원 + QR 스캔.'},
+    {v:'0.112', m:'저장 자동 정리 & Hall 자동 축적.'},
+    {v:'0.113', m:'추천 UX(제외수 상태바·가이드·버튼 균형·칩 랩).'},
+    {v:'0.114', m:'분석 프롬프트/패치 기록 추가.'},
+    {v:'0.115', m:'홈 업데이트 토스트·버튼 + Hall 요약.'},
+    {v:'0.116', m:'QR/프롬프트 복원 및 통합 안정화.'}
+  ];
 
   // ---------- pages ----------
   function Home(){
     const data = Store.read('data');
     const p = el('div',{class:'page home'},
       Card(el('div',{class:'title'},'로또 Lab Pro'),
-           el('div',{class:'desc'},'홈 수동 업데이트 버튼(조건부) + 업데이트 토스트(0.115).')),
+           el('div',{class:'desc'},'QR/프롬프트 복원 · 업데이트 버튼 유지(0.116).')),
       Btn('👑 1등 당첨번호','win',()=>go('/wins')),
       Btn('저장번호','blk',()=>go('/saved')),
       Btn('추천','blk',()=>go('/reco')),
       Btn('명예의전당','blk',()=>go('/hall')),
-      Btn('분석','blk',()=>go('/analysis'))
+      Btn('분석','blk',()=>go('/analysis')),
+      el('div',{class:'ver'},'patch '+VERSION)
     );
-
-    // 패치 표시
-    const ver = el('div',{class:'ver'},'patch '+VERSION);
-    p.appendChild(ver);
-
-    // 조건부 업데이트 버튼(필요시에만)
     if (shouldShowUpdateButton(data)){
       const up = Btn('업데이트','primary', ()=>forceUpdate());
       up.classList.add('update-btn');
@@ -266,19 +379,6 @@
     p.appendChild(list);
     attachFab(p);
     return p;
-  }
-
-  function renderSetRow(entry, ctx){
-    const isObj = (entry && typeof entry==='object' && Array.isArray(entry.nums));
-    const nums = isObj ? entry.nums : entry;
-    const cov = (isObj && entry.cov) ? entry.cov : coverageStatus();
-    const row = el('div',{class:'set-row'});
-    row.appendChild(el('div',{class:'covbar '+(cov==='ok'?'ok':'bad')}));
-    const chipWrap = el('div',{class:'chips'}); nums.forEach(n=> chipWrap.appendChild(lottoChip(n,'sm',false))); row.appendChild(chipWrap);
-    if (ctx==='reco'){ const prob = scoreProb1to100(nums); row.appendChild(el('span',{class:'prob'}, `(확률 ${prob}%)`)); }
-    if (ctx==='hall'){ row.appendChild(el('span',{class:'rank'}, '['+(entry.rank||'미추첨')+']')); }
-    if (ctx==='history'){ row.appendChild(el('span',{class:'badge-rank'}, '['+(entry.rank||'미추첨')+']')); }
-    return row;
   }
 
   function Recommend(){
@@ -392,7 +492,8 @@
         showToast('저장에 30세트 추가됨');
       })
     );
-    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(note); p.appendChild(listArea); return p;
+    p.appendChild(gridCard); p.appendChild(controls); p.appendChild(info); p.appendChild(note); p.appendChild(listArea);
+    return p;
   }
 
   function Wins(){
@@ -404,19 +505,48 @@
       return p;
     }
     function rankText(r){ if(!r) return '—'; const w=(r.winners!=null? r.winners+'명':'?'); const a=(r.amount!=null? r.amount:'?'); return `${a} / ${w}`; }
-    const title = el('div',{class:'title'}, `제 ${latest.round}회 당첨번호`);
-    const chipWrap = el('div',{class:'chips wrap'});
-    (latest.numbers||[]).forEach(n=>chipWrap.appendChild(lottoChip(n,'sm',false)));
-    const bonus = (latest.bonus!=null) ? latest.bonus : (latest.ranks && latest.ranks.bonus) || null;
-    if (bonus!=null){ const plus = el('span',{class:'plus'}, '+'); chipWrap.appendChild(plus); chipWrap.appendChild(lottoChip(bonus,'sm',false,'bonus')); }
-    const r1 = latest.ranks && latest.ranks[1]; const r2 = latest.ranks && latest.ranks[2]; const r3 = latest.ranks && latest.ranks[3];
-    const info = el('div',{class:'wins-info'},
-      el('div',{}, `1등: ${rankText(r1)}`),
-      el('div',{}, `2등: ${rankText(r2)}`),
-      el('div',{}, `3등: ${rankText(r3)}`)
-    );
-    p.appendChild(Card(title, chipWrap, info));
-    // recent list omitted for brevity; kept in 0.114
+    function buildTopCard(ent){
+      const title = el('div',{class:'title'}, `제 ${ent.round}회 당첨번호`);
+      const chipWrap = el('div',{class:'chips wrap'});
+      (ent.numbers||[]).forEach(n=>chipWrap.appendChild(lottoChip(n,'sm',false)));
+      const bonus = (ent.bonus!=null) ? ent.bonus : (ent.ranks && ent.ranks.bonus) || null;
+      if (bonus!=null){ const plus = el('span',{class:'plus'}, '+'); chipWrap.appendChild(plus); chipWrap.appendChild(lottoChip(bonus,'sm',false,'bonus')); }
+      const r1 = ent.ranks && ent.ranks[1]; const r2 = ent.ranks && ent.ranks[2]; const r3 = ent.ranks && ent.ranks[3];
+      const info = el('div',{class:'wins-info'},
+        el('div',{}, `1등: ${rankText(r1)}`),
+        el('div',{}, `2등: ${rankText(r2)}`),
+        el('div',{}, `3등: ${rankText(r3)}`)
+      );
+      const qrBtn = Btn('QR 확인','primary', showQrOverlay);
+      return Card(title, chipWrap, info, qrBtn);
+    }
+    p.appendChild(buildTopCard(latest));
+
+    const others = (data.history||[])
+      .filter(it => (latest.round!=null && it.round!=null) ? it.round!==latest.round : true)
+      .sort((a,b)=> (b.round||0)-(a.round||0))
+      .slice(0,50);
+
+    if (others.length){
+      const list = el('div',{class:'list'});
+      others.forEach(ent=>{
+        const title = el('div',{class:'block-title'}, `제 ${ent.round||'?'}회`);
+        const chipWrap = el('div',{class:'chips wrap'});
+        (ent.numbers||[]).forEach(n=>chipWrap.appendChild(lottoChip(n,'xs',false)));
+        if (ent.bonus!=null){ const plus = el('span',{class:'plus'}, '+'); chipWrap.appendChild(plus); chipWrap.appendChild(lottoChip(ent.bonus,'xs',false,'bonus')); }
+        const r1 = ent.ranks && ent.ranks[1]; const r2 = ent.ranks && ent.ranks[2]; const r3 = ent.ranks && ent.ranks[3];
+        const info = el('div',{class:'wins-info small'},
+          el('div',{}, `1등: ${rankText(r1)}`),
+          el('div',{}, `2등: ${rankText(r2)}`),
+          el('div',{}, `3등: ${rankText(r3)}`)
+        );
+        list.appendChild(Card(title, chipWrap, info));
+      });
+      p.appendChild(list);
+    } else {
+      p.appendChild(Card(el('div',{class:'desc'},'과거 회차 표시가 없습니다.')));
+    }
+    attachFab(p);
     return p;
   }
 
@@ -441,7 +571,49 @@
     return p;
   }
 
-  function Analysis(){ const p = el('div',{class:'page'}, Header('분석'), Card(el('div',{class:'desc'},'버전: '+VERSION))); attachFab(p); return p; }
+  function Analysis(){
+    const p = el('div',{class:'page'}, Header('분석'));
+    const data = Store.read('data');
+    const hist = data.history||[];
+    const rounds = hist.map(x=>x.round).filter(x=>typeof x==='number').sort((a,b)=>a-b);
+    const minR = rounds[0]; const maxR = rounds[rounds.length-1];
+    const cov = coverageStatus();
+
+    const card1 = Card(
+      el('div',{class:'title'}, '수집 범위/커버리지'),
+      el('div',{class:'desc'}, rounds.length ? `제 ${minR} ~ ${maxR}회 · 총 ${rounds.length}건 · 상태: ${cov==='ok'?'양호(≥600)':'부족(<600)'}` : '데이터 없음')
+    );
+    const card2 = Card(
+      el('div',{class:'title'}, '최근 실패/지연 사유'),
+      el('div',{class:'desc'}, data.failReason || '—')
+    );
+    const card3 = Card(
+      el('div',{class:'title'}, '추천 엔진 개요'),
+      el('ul',{}, [
+        el('li',{}, '밴드 상한: 1~39 각 밴드 최대 3개, 40~45 최대 2개'),
+        el('li',{}, '직전 회차 번호(G1) 세트당 최대 2개'),
+        el('li',{}, '과거와 겹침≥3 세트 제외(1회차~최근까지)'),
+        el('li',{}, '직전 번호는 제외수 설정시 자동 해제(무시)'),
+        el('li',{}, '세트당 확률 표시는 1~100 점수형')
+      ])
+    );
+    const card4 = Card(
+      el('div',{class:'title'}, '패치 기록'),
+      el('ul',{}, PATCH_LOG.map(it=> el('li',{}, `${it.v} — ${it.m}`)))
+    );
+    const promptBtn = Btn('프롬프트','primary', ()=>{
+      const pre = el('pre',{class:'prompt-pre'}, PROMPT_SUMMARY);
+      const copy = Btn('복사','blk', async ()=>{
+        try{ await navigator.clipboard.writeText(PROMPT_SUMMARY); copy.textContent='복사됨'; setTimeout(()=>copy.textContent='복사', 1500);}catch(e){ copy.textContent='복사 실패'; setTimeout(()=>copy.textContent='복사', 1500); }
+      });
+      const close = Btn('닫기','danger', ()=>ov.close());
+      const ov = overlay(el('div',{class:'prompt-sheet'}, el('div',{class:'title'},'프롬프트 요약'), pre, el('div',{class:'row'}, copy, close)));
+    });
+
+    p.appendChild(card1); p.appendChild(card2); p.appendChild(card3); p.appendChild(card4); p.appendChild(promptBtn);
+    attachFab(p);
+    return p;
+  }
 
   // ---------- mount/router ----------
   const ROOT=document.getElementById('app');
@@ -450,10 +622,8 @@
   window.addEventListener('hashchange', render);
   window.addEventListener('DOMContentLoaded', ()=>{
     if(!location.hash) location.replace('#/home');
-    // 버전 갱신 토스트
     const seen = Store.read('lastSeenBuild');
     if (seen !== VERSION){ Store.write('lastSeenBuild', VERSION); showToast(`업데이트되었습니다 · ${VERSION}`); }
-    // 자동 정리
     settleResultsIfNeeded();
     render();
     console.log('VERSION', VERSION);

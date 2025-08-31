@@ -1,6 +1,6 @@
 :root{ --bg:#FBF6F0; --ink:#2E2A26; --card:#F7EFE5; --shadow:0 8px 22px rgba(0,0,0,.08); --btn:#EFE6DA; --btnP:#F4C64E; --btnD:#F06C6C }
 *{box-sizing:border-box} html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR',sans-serif}
-#app{padding:30px 16px 40px}
+#app{padding:30px 16px 30px} /* 홈 상단/하단 30px 비움 */
 .hdr{position:sticky;top:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:10px 8px 12px;z-index:5}
 .hdr .twrap{max-width:70%} .hdr .ttl{margin:0;height:32px;line-height:32px;font-weight:800;font-size:22px;white-space:nowrap;overflow:hidden}
 .hdr .sp{width:44px}
@@ -11,9 +11,13 @@
 .ver{text-align:center;margin-top:18px;opacity:.58}
 .btn{display:block;width:100%;padding:18px 16px;border-radius:16px;border:0;background:var(--btn);font-weight:800;box-shadow:var(--shadow);cursor:pointer}
 .btn.blk{margin:8px 0} .btn.ghost{background:#EADFCC} .btn.primary{background:var(--btnP)} .btn.danger{background:var(--btnD);color:#fff}
+/* 특수 당첨 버튼 */
+.btn.win{background:#E74C3C;color:#fff;position:relative}
+.btn.win span::before{content:'👑 1등 ';margin-right:6px}
 .row{display:flex;gap:12px;flex-wrap:wrap} .row.equal .btn{flex:1}
 .list{margin-bottom:56px}
-.set-row{display:flex;gap:10px;padding:6px 0;flex-wrap:nowrap;align-items:center}
+.set-row{display:flex;gap:10px;padding:8px 10px;flex-wrap:wrap;align-items:center;border-radius:12px;transition:background .15s}
+.set-row.selected{background:#E6F4FF}
 .set-row .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{--chip-fill:#ddd;min-width:26px;height:26px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;border:3px solid #0000;color:#fff;background:var(--chip-fill);box-sizing:border-box;font-size:13px}
 .chip.small{min-width:24px;height:24px;font-size:12px}
@@ -30,6 +34,9 @@
 @media (min-width:360px){ .chip{min-width:28px;height:28px;font-size:14px} .chip.small{min-width:26px;height:26px;font-size:13px} .covbar{height:28px} }
 @media (min-width:414px){ .chip{min-width:30px;height:30px;font-size:15px} .chip.small{min-width:28px;height:28px;font-size:14px} .covbar{height:30px} }
 @media (min-width:480px){ .chip{min-width:32px;height:32px;font-size:16px} .chip.small{min-width:30px;height:30px;font-size:15px} .covbar{height:32px} }
+/* scroll-to-top FAB */
+.fab{position:fixed;right:16px;bottom:22px;width:52px;height:52px;border-radius:50%;border:0;background:#2DBE75;color:#fff;font-size:22px;box-shadow:0 10px 22px rgba(0,0,0,.2);opacity:0;transform:translateY(12px);pointer-events:none;transition:.2s}
+.fab.show{opacity:1;transform:none;pointer-events:auto}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.2);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99}
 .spinner{width:44px;height:44px;border:5px solid #fff;border-top-color:#2E2A26;border-radius:50%;animation:sp 1s linear infinite}
 .ov-text{margin-top:10px;background:#fff;padding:8px 12px;border-radius:10px;font-weight:800}

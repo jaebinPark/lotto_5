@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko" data-version="patch_1.102">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#FBF6F0"/>
+  <title>로또 Lab Pro</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="assets/styles.css?v=patch_1.102">
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="로또LabPro"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+  <div id="app">
+    <header id="app-header" class="header hidden">
+      <h1 id="view-title">제목</h1>
+      <button id="home-btn" class="home-btn" aria-label="홈">⌂</button>
+    </header>
+
+    <main id="view-container">
+      <section id="home" class="view active no-scroll">
+        <div style="height:30px;"></div>
+        <div class="card draw-card" id="home-latest-draw">
+          <div class="card-title bold">최신 당첨번호</div>
+          <div class="chips-row" id="home-draw-chips"></div>
+          <div class="prize-info" id="home-prize-info"></div>
+        </div>
+
+        <div class="btn-column">
+          <button class="big-btn" data-nav="#draws">당첨번호</button>
+          <button class="big-btn" id="saved-btn" data-nav="#saved">저장번호</button>
+          <button class="big-btn" data-nav="#recommend">추천</button>
+          <button class="big-btn" data-nav="#hall">명예의전당</button>
+          <button class="big-btn" data-nav="#analysis">분석</button>
+        </div>
+
+        <footer class="footer">
+          <button id="update-btn" class="update-btn hidden">업데이트</button>
+          <div class="version">patch_1.102</div>
+          <div style="height:30px;"></div>
+        </footer>
+      </section>
+
+      <section id="draws" class="view">
+        <div class="card draw-card" id="draws-latest">
+          <div class="card-title">최근 당첨번호</div>
+          <div class="chips-row" id="draws-latest-chips"></div>
+          <div class="prize-info" id="draws-latest-prize"></div>
+          <div class="qr-row"><button id="qr-btn" class="qr-btn">QR 확인</button></div>
+        </div>
+        <div id="draws-list"></div>
+      </section>
+
+      <section id="saved" class="view">
+        <div id="saved-active"></div>
+        <div id="saved-archive"></div>
+      </section>
+
+      <section id="recommend" class="view">
+        <div class="card">
+          <div class="card-title">제외수 선택</div>
+          <div class="chips-grid-10" id="exclude-grid"></div>
+          <div class="row">
+            <button id="exclude-reset" class="btn">제외수 리셋</button>
+            <button id="do-recommend" class="btn primary">추천(30셋트)</button>
+          </div>
+        </div>
+        <div id="recommend-results"></div>
+      </section>
+
+      <section id="hall" class="view">
+        <div id="hall-cards"></div>
+      </section>
+
+      <section id="analysis" class="view">
+        <div class="card"><div class="card-title">수집 범위</div><div id="range-card"></div></div>
+        <div class="card"><div class="card-title">프롬프트</div><button id="prompt-btn" class="btn">프롬프트 보기</button></div>
+        <div class="card"><div class="card-title">추천엔진 소개</div><div id="engine-card"></div></div>
+        <div class="card"><div class="card-title">패치 내용</div><pre id="patch-notes"></pre></div>
+      </section>
+    </main>
+
+    <button id="fab-up" class="fab hidden" aria-label="맨 위로">↑</button>
+
+    <div id="qr-overlay" class="overlay hidden">
+      <div class="overlay-backdrop"></div>
+      <div class="overlay-content">
+        <video id="qr-video" autoplay playsinline muted></video>
+        <div class="overlay-actions">
+          <input id="qr-file" type="file" accept="image/*" capture="environment" class="hidden">
+          <button id="qr-pick" class="btn">사진으로 인식</button>
+          <button id="qr-go" class="btn primary hidden">확인하러가기</button>
+          <button id="qr-cancel" class="btn">취소</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>window.APP_VERSION = "patch_1.102";</script>
+  <script src="assets/app.js?v=patch_1.102"></script>
+  <script>
+    if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./assets/sw.js?ver=patch_1.102'); }); }
+  </script>
+</body>
+</html>

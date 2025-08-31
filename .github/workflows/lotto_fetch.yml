@@ -1,0 +1,20 @@
+name: Lotto Fetch & Build Data
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '40 11 * * 6' # 20:40 KST
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build data placeholder
+        run: |
+          echo "No-op in demo. Connect real fetch script later."
+      - name: Commit
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add -A
+          git commit -m "data: update" || echo "no changes"
+          git push

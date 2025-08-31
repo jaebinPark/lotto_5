@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#FBF6F0">
+  <link rel="apple-touch-icon" href="./icons/app-icon-180.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <title>로또 Lab Pro</title>
+  <link rel="stylesheet" href="./styles.css?v=patch_0.118">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    if (!location.hash) location.replace("#/home");
+  </script>
+  <script src="./app.bundle.js?v=patch_0.118" defer></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', {scope:'./'}).catch(()=>{});
+      });
+    }
+  </script>
+</body>
+</html>

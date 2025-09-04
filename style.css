@@ -109,3 +109,24 @@ h1,h2,h3,p,span,button,div{ overflow:hidden; text-overflow:ellipsis; white-space
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* === 가로 오버플로우 방지 & 기본 줄바꿈 허용 === */
+html, body { overflow-x: hidden; }
+
+h1, h2, h3, p, span, button, div {
+  white-space: normal; /* 기본 줄바꿈 허용 */
+  text-overflow: clip;
+  overflow-wrap: anywhere; /* 긴 숫자/URL도 자동 개행 */
+}
+
+/* 번호칩 레이아웃은 자동 줄바꿈 */
+.chips { flex-wrap: wrap; min-width: 0; }
+
+/* 분석 화면 카드 내용은 항상 줄바꿈 허용(보강) */
+.analysis-card * { white-space: normal !important; overflow-wrap: anywhere; }
+
+/* 추천화면: 버튼 두 개 가로 배치 */
+.reco-actions {
+display:flex; gap:8px; margin:12px 0;
+}
+.reco-actions .btn { flex:1; }

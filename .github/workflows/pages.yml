@@ -1,38 +1,38 @@
-name: pages build and deployment
+﻿name: Lotto Fetch & Build Data
 
 on:
+  workflow_dispatch: {} # Actions 탭에서 "Run workflow" 버튼
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    paths:
+      - "scripts/fetch_all.js"
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 jobs:
-  build:
+  fetch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          path: .
+          node-version: 20
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Install deps
+        run: npm i node-fetch@3
+
+      - name: Fetch all rounds
+        run: node scripts/fetch_all.js
+
+      - name: Commit & push draws.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/draws.json
+          git commit -m "data: update draws.json (full backfill)" || echo "no changes"
+          git push
+
+          

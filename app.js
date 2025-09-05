@@ -1,33 +1,36 @@
-/* 로또 Lab Pro — 통합 PWA (V11 + UI Final)
- * 모든 시간 기준: KST (UTC+9)
+/* app.js — Lotto Lab Pro (Full overwrite version)
+ * 모든 시간: KST (UTC+9)
  */
-export const VERSION = 'patch_0.101';
+export const VERSION = 'patch_0.105';
 
-// 유지보수 개선: 주요 설정값을 상수로 분리
 const CONFIG = {
   STATS_WINDOW: 150,
-  PORTFOLIO_SIZE: 30,
-  MAX_SAVED_SETS: 6,
+  PORTFOLIO_SIZE: 30,      // = 5게임 × 6묶음
+  GROUPS: 6,               // 묶음 수
+  GROUP_SIZE: 5,           // 묶음당 게임 수
+  MAX_SAVED_SETS: 6,       // 저장 카드 최대 개수
   BACKTEST_WINDOW: 30,
-  CONCURRENT_FETCHES: 5, // 최초 수집 시 동시 요청 개수
+  CONCURRENT_FETCHES: 5
 };
 
 const KST_OFFSET = 9 * 60;
-// ---------- KST helpers ----------
+
+/* ========= KST helpers ========= */
 function nowKST() {
   const d = new Date();
   const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
   return new Date(utc + KST_OFFSET * 60000);
 }
-function formatDate(d) { return d.toISOString().slice(0,10); }
-function isSaturday2030to2400KST() {
+function isSatAfter2045() {
   const k = nowKST();
-  const day = k.getDay(); // 6 = Sat
-  const h = k.getHours();
-  return (day===6 && h>=20 && h<24);
+  return (k.getDay() === 6 && (k.getHours() > 20 || (k.getHours() === 20 && k.getMinutes() >= 45)));
+}
+function isMonAfter7() {
+  const k = nowKST();
+  return (k.getDay() === 1 && k.getHours() >= 7);
 }
 
-// ---------- L5 storage ----------
+/* ========= L5 storage ========= */
 const L5 = {
   get(key, def){ try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch(e){ return def; } },
   set(key, val){ localStorage.setItem(key, JSON.stringify(val)); },
@@ -39,10 +42,9 @@ if (!L5.get('L5.draws50')) L5.set('L5.draws50', []);
 if (!L5.get('L5.saved_sets')) L5.set('L5.saved_sets', []);
 if (!L5.get('L5.exclude_mask')) L5.set('L5.exclude_mask', []);
 if (!L5.get('L5.hof')) L5.set('L5.hof', []);
-if (!L5.get('L5.meta')) L5.set('L5.meta', { patch: 'patch_0.101', build: Date.now(), notes: '오락용, 확률 보장 없음.' });
-if (!L5.get('L5.analysisData')) L5.set('L5.analysisData', null);
+if (!L5.get('L5.meta')) L5.set('L5.meta', { patch: VERSION, build: Date.now(), notes: '오락용, 확률 보장 없음.' });
 
-// ---------- Routing/UI elements ----------
+/* ========= Routing/UI elements ========= */
 const header = document.getElementById('app-header');
 const headerTitle = document.getElementById('header-title');
 const homeBtn = document.getElementById('home-btn');
@@ -50,11 +52,12 @@ const view = document.getElementById('view');
 const fabTop = document.getElementById('fab-top');
 const patchLabel = document.getElementById('patch-label');
 const updateBtn = document.getElementById('update-btn');
-// UX 개선: 로딩 오버레이 요소 추가
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 
+patchLabel.textContent = `patch ${VERSION}`;
 homeBtn.addEventListener('click', ()=>nav('#home'));
+window.addEventListener('hashchange', render);
 window.addEventListener('scroll', () => {
   const route = location.hash || '#home';
   if (route === '#home') { fabTop.classList.add('hidden'); return; }
@@ -62,45 +65,25 @@ window.addEventListener('scroll', () => {
 });
 fabTop.addEventListener('click', ()=>window.scrollTo({top:0,behavior:'smooth'}));
 
-window.addEventListener('hashchange', render);
-function nav(hash){ if (location.hash !== hash) location.hash = hash; else render(); }
+/* ========= SW update signal → 버튼 노출 ========= */
+let swWaiting = false;
+window.addEventListener('sw-waiting', ()=>{ swWaiting = true; ensureUpdateBadge(); });
 
-window.addEventListener('sw-waiting', ()=>{ updateBtn.classList.remove('hidden'); updateBtn.textContent='지금 업데이트'; });
-updateBtn.addEventListener('click', async ()=>{ if (navigator.serviceWorker?.controller) { const regs = await navigator.serviceWorker.getRegistrations(); for (const reg of regs) reg.waiting?.postMessage({type:'SKIP_WAITING'}); } location.reload(); });
-patchLabel.textContent = `patch patch_0.101`;
+/* ========= Loader ========= */
+function showLoader(text='처리 중...'){ loadingText.textContent=text; loadingOverlay.classList.remove('hidden'); }
+function hideLoader(){ loadingOverlay.classList.add('hidden'); }
 
-// UX 개선: 로딩 화면 제어 함수
-function showLoader(text = '처리 중...') {
-  loadingText.textContent = text;
-  loadingOverlay.classList.remove('hidden');
-}
-function hideLoader() {
-  loadingOverlay.classList.add('hidden');
-}
-
-
-// ---------- UI helpers ----------
-function chipWinning(n){ const g=n<=10?1:n<=20?2:n<=30?3:n<=40?4:5; const d=document.createElement('div'); d.className='chip win-'+g; d.textContent=String(n).padStart(2,'0'); return d; }
-function chipBonus(n){ const c=chipWinning(n); c.classList.add('bonus'); return c; }
-function chipNumber(n,sel=false){ const d=document.createElement('div'); d.className='chip num'+(sel?' selected':''); d.textContent=String(n).padStart(2,'0'); d.dataset.value=n; return d; }
-function makeWarningCard(ok){ const n=document.createElement('div'); n.className='warning-card '+(ok?'warning-blue':'warning-red'); return n; }
-function card(children){ const d=document.createElement('div'); d.className='card'; (Array.isArray(children)?children:[children]).filter(Boolean).forEach(c=>d.appendChild(c)); return d; }
-function h2(t){ const e=document.createElement('h2'); e.textContent=t; return e; }
-function p(t){ const e=document.createElement('p'); e.textContent=t; e.classList.add('multiline'); return e; }
-function row(label, value){ const r=document.createElement('div'); r.className='grid grid-2'; const a=document.createElement('div'); a.textContent=label; const b=document.createElement('div'); b.textContent=value; b.style.textAlign='right'; r.append(a,b); return r; }
-
-// ---------- Fetch helpers ----------
+/* ========= Fetch helpers ========= */
 async function fetchJSON(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.json(); }
 async function fetchText(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.text(); }
 
-// dhlottery JSON (official)
+/* ========= Lotto fetch ========= */
 async function fetchRound(round){
   const url = `https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=${round}`;
   const j = await fetchJSON(url);
   if (j.returnValue !== 'success') throw new Error('no data for round ' + round);
   const main = [j.drwNo1,j.drwNo2,j.drwNo3,j.drwNo4,j.drwNo5,j.drwNo6].sort((a,b)=>a-b);
   const bonus = j.bnusNo;
-  // 안정성 강화: fetchPrize23 실패 시를 대비
   const p23 = await fetchPrize23(round).catch(()=>({rank2: null, rank3: null}));
   return {
     round:j.drwNo, date:j.drwNoDate,
@@ -113,39 +96,192 @@ async function fetchRound(round){
     totSellamnt:j.totSellamnt ?? null
   };
 }
-
-// Try to parse 2nd/3rd prize from public result page via r.jina.ai (CORS-friendly text mirror)
 async function fetchPrize23(round){
   const urls = [
     `https://r.jina.ai/http://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`,
     `https://r.jina.ai/https://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`
   ];
   let text=null;
-  for (const u of urls){
-    try{ text = await fetchText(u); if (text) break; }catch(e){ console.warn(`Failed to fetch from ${u}`); }
-  }
-  if (!text) throw new Error('p23 fetch fail: all sources failed');
+  for (const u of urls){ try{ text = await fetchText(u); if (text) break; }catch(e){ /*noop*/ } }
+  if (!text) throw new Error('p23 fetch fail');
   const clean = text.replace(/\s+/g,' ');
   function parseOne(label){
     let m = new RegExp(label+"[^0-9]*([0-9,]+)명[^0-9]*([0-9,]+)원").exec(clean);
     if (!m) m = new RegExp(label+"[^0-9]*([0-9,]+)원[^0-9]*([0-9,]+)명").exec(clean);
     if (!m) return null;
     try {
-      const a = parseInt(m[2].replace(/,/g,'')); // amount
-      const w = parseInt(m[1].replace(/,/g,'')); // winners
+      const a = parseInt(m[2].replace(/,/g,'')); 
+      const w = parseInt(m[1].replace(/,/g,'')); 
       return { amount:a, winners:w };
-    } catch(e) {
-      return null;
-    }
+    } catch(e) { return null; }
   }
   const rank2 = parseOne('2등');
   const rank3 = parseOne('3등');
-  // 안정성 강화: 하나라도 파싱 실패하면 에러 throw
-  if (!rank2 || !rank3) throw new Error('p23 parse fail: regex mismatch');
+  if (!rank2 || !rank3) throw new Error('p23 parse fail');
   return { rank2, rank3 };
 }
 
-// Find latest available round by probing upward from known last+1
+/* ========= Initial backfill ========= */
+async function initialBackfill(){
+  const status = L5.get('L5.status');
+  if (status.count > 0) return;
+  showLoader('최신 회차 정보 확인 중...');
+  let latest = 0;
+  try { latest = await fetchRound(2000).then(d=>d.round); } catch {}
+  if (!latest) { hideLoader(); toast('데이터 수집 실패'); return; }
+  const out = []; let cur = latest;
+  while (cur >= 1){
+    const tasks = [];
+    for (let i=0; i<CONFIG.CONCURRENT_FETCHES; i++){
+      const r = cur - i; if (r >= 1) tasks.push(fetchRound(r).catch(()=>null));
+    }
+    const arr = await Promise.all(tasks);
+    for (const x of arr) if (x) out.push(x);
+    cur -= CONFIG.CONCURRENT_FETCHES;
+    showLoader(`데이터 수집 중... (${out.length} / ${latest} 회차)`);
+    out.sort((a,b)=>a.round-b.round);
+    L5.set('L5.draws', out.slice());
+    L5.set('L5.draws50', out.slice(-50));
+    L5.set('L5.status', { count: out.length, last_round: out.at(-1)?.round || 0, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
+    await new Promise(r => setTimeout(r, 30));
+  }
+  hideLoader();
+}
+/* app.js — Lotto Lab Pro (Full overwrite)
+ * 모든 시간: KST (UTC+9)
+ */
+export const VERSION = 'patch_0.105';
+
+const CONFIG = {
+  STATS_WINDOW: 150,
+  PORTFOLIO_SIZE: 30,      // = 5게임 × 6묶음
+  GROUPS: 6,               // 묶음 수
+  GROUP_SIZE: 5,           // 묶음당 게임 수
+  MAX_SAVED_SETS: 6,       // 저장 카드 최대 개수
+  BACKTEST_WINDOW: 30,
+  CONCURRENT_FETCHES: 5
+};
+
+const KST_OFFSET = 9 * 60;
+
+/* ========= KST helpers ========= */
+function nowKST() {
+  const d = new Date();
+  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+  return new Date(utc + KST_OFFSET * 60000);
+}
+function isSatAfter2045() {
+  const k = nowKST();
+  return (k.getDay() === 6 && (k.getHours() > 20 || (k.getHours() === 20 && k.getMinutes() >= 45)));
+}
+function isMonAfter7() {
+  const k = nowKST();
+  return (k.getDay() === 1 && k.getHours() >= 7);
+}
+
+/* ========= L5 storage ========= */
+const L5 = {
+  get(key, def){ try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch(e){ return def; } },
+  set(key, val){ localStorage.setItem(key, JSON.stringify(val)); },
+};
+
+if (!L5.get('L5.status')) L5.set('L5.status', {count:0,last_round:0,last_updated_at:null, phase1_runs:{round:0,runs:0}});
+if (!L5.get('L5.draws')) L5.set('L5.draws', []);
+if (!L5.get('L5.draws50')) L5.set('L5.draws50', []);
+if (!L5.get('L5.saved_sets')) L5.set('L5.saved_sets', []);
+if (!L5.get('L5.exclude_mask')) L5.set('L5.exclude_mask', []);
+if (!L5.get('L5.hof')) L5.set('L5.hof', []);
+if (!L5.get('L5.meta')) L5.set('L5.meta', { patch: VERSION, build: Date.now(), notes: '오락용, 확률 보장 없음.' });
+if (!L5.get('L5.analysisData')) L5.set('L5.analysisData', null);
+if (L5.get('L5.sat_pulled_ok') === undefined) L5.set('L5.sat_pulled_ok', false);
+
+/* ========= Routing/UI elements ========= */
+const header = document.getElementById('app-header');
+const headerTitle = document.getElementById('header-title');
+const homeBtn = document.getElementById('home-btn');
+const view = document.getElementById('view');
+const fabTop = document.getElementById('fab-top');
+const patchLabel = document.getElementById('patch-label');
+const updateBtn = document.getElementById('update-btn');
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingText = document.getElementById('loading-text');
+
+patchLabel.textContent = `patch ${VERSION}`;
+homeBtn.addEventListener('click', ()=>nav('#home'));
+window.addEventListener('hashchange', render);
+window.addEventListener('scroll', () => {
+  const route = location.hash || '#home';
+  if (route === '#home') { fabTop.classList.add('hidden'); return; }
+  if (window.scrollY > 250) fabTop.classList.remove('hidden'); else fabTop.classList.add('hidden');
+});
+fabTop.addEventListener('click', ()=>window.scrollTo({top:0,behavior:'smooth'}));
+
+/* ========= SW update signal → 버튼 노출 ========= */
+let swWaiting = false;
+window.addEventListener('sw-waiting', ()=>{ swWaiting = true; ensureUpdateBadge(); });
+
+/* ========= Loader ========= */
+function showLoader(text='처리 중...'){ loadingText.textContent=text; loadingOverlay.classList.remove('hidden'); }
+function hideLoader(){ loadingOverlay.classList.add('hidden'); }
+
+/* ========= UI helpers ========= */
+function chipWinning(n){ const g=n<=10?1:n<=20?2:n<=30?3:n<=40?4:5; const d=document.createElement('div'); d.className='chip win-'+g; d.textContent=String(n).padStart(2,'0'); return d; }
+function chipBonus(n){ const c=chipWinning(n); c.classList.add('bonus'); return c; }
+function chipNumber(n,sel=false){ const d=document.createElement('div'); d.className='chip num'+(sel?' selected':''); d.textContent=String(n).padStart(2,'0'); d.dataset.value=n; return d; }
+function makeWarningCard(ok){ const n=document.createElement('div'); n.className='warning-card '+(ok?'warning-blue':'warning-red'); return n; }
+function card(children){ const d=document.createElement('div'); d.className='card'; (Array.isArray(children)?children:[children]).filter(Boolean).forEach(c=>d.appendChild(c)); return d; }
+function h2(t){ const e=document.createElement('h2'); e.textContent=t; return e; }
+function p(t){ const e=document.createElement('p'); e.textContent=t; e.classList.add('multiline'); return e; }
+function row(label, value){ const r=document.createElement('div'); r.className='grid grid-2'; const a=document.createElement('div'); a.textContent=label; const b=document.createElement('div'); b.textContent=value; b.style.textAlign='right'; r.append(a,b); return r; }
+const groupInto = (arr, size) => Array.from({length: Math.ceil(arr.length/size)}, (_,i)=>arr.slice(i*size,(i+1)*size));
+
+/* ========= Fetch helpers ========= */
+async function fetchJSON(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.json(); }
+async function fetchText(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.text(); }
+
+/* ========= Lotto fetch ========= */
+async function fetchRound(round){
+  const url = `https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=${round}`;
+  const j = await fetchJSON(url);
+  if (j.returnValue !== 'success') throw new Error('no data for round ' + round);
+  const main = [j.drwNo1,j.drwNo2,j.drwNo3,j.drwNo4,j.drwNo5,j.drwNo6].sort((a,b)=>a-b);
+  const bonus = j.bnusNo;
+  const p23 = await fetchPrize23(round).catch(()=>({rank2: null, rank3: null}));
+  return {
+    round:j.drwNo, date:j.drwNoDate,
+    main, bonus,
+    prize:{
+      rank1:{ amount:j.firstWinamnt, winners:j.firstPrzwnerCo },
+      rank2:p23?.rank2,
+      rank3:p23?.rank3
+    },
+    totSellamnt:j.totSellamnt ?? null
+  };
+}
+async function fetchPrize23(round){
+  const urls = [
+    `https://r.jina.ai/http://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`,
+    `https://r.jina.ai/https://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`
+  ];
+  let text=null;
+  for (const u of urls){ try{ text = await fetchText(u); if (text) break; }catch(e){ /*noop*/ } }
+  if (!text) throw new Error('p23 fetch fail');
+  const clean = text.replace(/\s+/g,' ');
+  function parseOne(label){
+    let m = new RegExp(label+"[^0-9]*([0-9,]+)명[^0-9]*([0-9,]+)원").exec(clean);
+    if (!m) m = new RegExp(label+"[^0-9]*([0-9,]+)원[^0-9]*([0-9,]+)명").exec(clean);
+    if (!m) return null;
+    try {
+      const a = parseInt(m[2].replace(/,/g,'')); 
+      const w = parseInt(m[1].replace(/,/g,'')); 
+      return { amount:a, winners:w };
+    } catch(e) { return null; }
+  }
+  const rank2 = parseOne('2등');
+  const rank3 = parseOne('3등');
+  if (!rank2 || !rank3) throw new Error('p23 parse fail');
+  return { rank2, rank3 };
+}
 async function fetchLatestRoundGuess(start=2000){
   let r = start; let got = 0;
   while (r>0){
@@ -154,74 +290,48 @@ async function fetchLatestRoundGuess(start=2000){
   return got;
 }
 
-// Initial backfill (latest -> 1)
+/* ========= Initial backfill ========= */
 async function initialBackfill(){
   const status = L5.get('L5.status');
   if (status.count > 0) return;
-  
   showLoader('최신 회차 정보 확인 중...');
   const latest = await fetchLatestRoundGuess(2000);
-  if (!latest) {
-    hideLoader();
-    toast('데이터 수집에 실패했습니다.');
-    return;
-  }
-  
-  const out = [];
-  let cur = latest;
-  
+  if (!latest) { hideLoader(); toast('데이터 수집 실패'); return; }
+  const out = []; let cur = latest;
   while (cur >= 1){
     const tasks = [];
-    for (let i = 0; i < CONFIG.CONCURRENT_FETCHES; i++){
-      const r = cur - i;
-      if (r >= 1) tasks.push(fetchRound(r).catch(() => null));
+    for (let i=0; i<CONFIG.CONCURRENT_FETCHES; i++){
+      const r = cur - i; if (r >= 1) tasks.push(fetchRound(r).catch(()=>null));
     }
     const arr = await Promise.all(tasks);
     for (const x of arr) if (x) out.push(x);
-    
     cur -= CONFIG.CONCURRENT_FETCHES;
-    
-    // UX 개선: 진행 상태 표시
     showLoader(`데이터 수집 중... (${out.length} / ${latest} 회차)`);
-    
-    out.sort((a,b) => a.round - b.round);
+    out.sort((a,b)=>a.round-b.round);
     L5.set('L5.draws', out.slice());
     L5.set('L5.draws50', out.slice(-50));
     L5.set('L5.status', { count: out.length, last_round: out.at(-1)?.round || 0, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
-    
-    // UI 업데이트를 위해 잠시 제어권 반환
-    await new Promise(r => setTimeout(r, 50)); 
+    await new Promise(r => setTimeout(r, 30));
   }
-  toast('모든 회차 정보 수집 완료!');
   hideLoader();
-  render(); // 수집 완료 후 화면 다시 렌더링
 }
 
-// Regular polling (Sat 20:30~24:00 KST)
-async function regularPolling(){
-  try{
-    const st = L5.get('L5.status');
-    if (!st.last_round) return;
-    let r = st.last_round + 1;
-    let got = null;
-    for (let i=0;i<20;i++){ try{ got = await fetchRound(r); break; }catch(e){ r++; } }
-    if (!got) return;
-    const prev = L5.get('L5.draws'); prev.push(got); prev.sort((a,b)=>a.round-b.round);
-    L5.set('L5.draws', prev); L5.set('L5.draws50', prev.slice(-50));
-    L5.set('L5.status', { count: prev.length, last_round: got.round, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
-    onNewDrawArrived(got);
-  }catch(e){ console.warn('regularPolling fail', e); }
+/* ========= Polling (Sat 20:45+) ========= */
+async function tryFetchLatestOnce(){
+  const st = L5.get('L5.status');
+  if (!st.last_round) return false;
+  let r = st.last_round + 1;
+  let got=null;
+  for (let i=0;i<10;i++){ try{ got = await fetchRound(r); break; } catch(e){ r++; } }
+  if (!got) return false;
+  const prev=L5.get('L5.draws'); prev.push(got); prev.sort((a,b)=>a.round-b.round);
+  L5.set('L5.draws', prev); L5.set('L5.draws50', prev.slice(-50));
+  L5.set('L5.status', { count: prev.length, last_round: got.round, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
+  onNewDrawArrived(got);
+  return true;
 }
 
-function scheduleWatchdog(){
-  if (isSaturday2030to2400KST()) regularPolling();
-  const k = nowKST();
-  if (k.getDay()===6 && (k.getHours()>20 || (k.getHours()===20 && k.getMinutes()>=45))){
-    updateBtn.classList.remove('hidden');
-  }
-}
-
-// ---------- Engine V11 (Phase1/2) ----------
+/* ========= Engine V11 ========= */
 function lastND(arr,n){ return arr.slice(-n); }
 function flatten(a){ return a.flat(); }
 function countMap(arr){ const m=new Map(); for(const x of arr) m.set(x,(m.get(x)||0)+1); return m; }
@@ -261,23 +371,24 @@ function groupHotCold(draws, counts, mean, sd, hotZ=1.0, coldZ=-0.6){
   }
   return {hot,cold};
 }
+/* G5: "가장 최근 회차 트리거 기준"
+   직전 회차의 어떤 번호와도 겹치는 과거회차들의 다음회차에서 '한 번도 등장하지 않은' 숫자 집합 */
 function groupG5NeverFollowed(draws){
   if (draws.length<2) return new Set();
   const last = draws.at(-1);
   const ever = new Set();
-  for (let i=0;i<draws.length-1;i++){ const cur=draws[i].main, nxt=draws[i+1].main;
+  for (let i=0;i<draws.length-1;i++){
+    const cur=draws[i].main, nxt=draws[i+1].main;
     if (cur.some(x=> last.main.includes(x))) for (const y of nxt) ever.add(y);
   }
   const never=new Set(); for (let n=1;n<=45;n++) if (!ever.has(n)) never.add(n);
   return never;
 }
-
 // PRNG PCG64 approx
 class PCG64 {
   constructor(seed=0n){ this.state = seed||42n; this.inc=1442695040888963407n; }
   next(){ this.state = this.state * 6364136223846793005n + (this.inc|1n); let x = (this.state>>64n) ^ this.state; x = (x>>22n)&((1n<<64n)-1n); const rot=Number(this.state>>122n)&63; const res = Number(((x>>rot)|(x<<((-rot)&63))) & ((1n<<64n)-1n))>>>0; return res/2**32; }
 }
-
 function oddEvenKey(set){ const o=set.filter(x=>x%2).length; return o+':'+(6-o); }
 function sumOf(a){ return a.reduce((p,c)=>p+c,0); }
 function passesHard(set, analysis, draws, g1){
@@ -289,7 +400,6 @@ function passesHard(set, analysis, draws, g1){
   if (set.filter(x=>g1.has(x)).length>2) return false;
   return true;
 }
-
 function sampleSet(rng, weights, gsets){
   const cand=[];
   for (const [name,g] of Object.entries(gsets)) for (const n of g) cand.push({n, w:weights[name]||0.1});
@@ -301,7 +411,6 @@ function sampleSet(rng, weights, gsets){
   }
   return Array.from(set).sort((a,b)=>a-b);
 }
-
 function generatePortfolio(draws, analysis, params){
   const g1=groupG1(draws);
   const {hot:cHot, cold:cCold} = groupHotCold(draws, analysis.counts, analysis.mean, analysis.sd, params.hotZ, params.coldZ);
@@ -314,9 +423,11 @@ function generatePortfolio(draws, analysis, params){
   let seed=0n; for (const ch of seedStr) seed = (seed*131n + BigInt(ch.charCodeAt(0))) & ((1n<<128n)-1n);
   const rng=new PCG64(seed);
 
+  const exclusions=new Set(L5.get('L5.exclude_mask')||[]);
   const out=[]; let guard=0;
-  while (out.length<CONFIG.PORTFOLIO_SIZE && guard<2000){
+  while (out.length<CONFIG.PORTFOLIO_SIZE && guard<4000){
     const s = sampleSet(rng, params.weights, gsets);
+    if (s.some(n=>exclusions.has(n))){ guard++; continue; }
     if (!passesHard(s, analysis, draws, g1)){ guard++; continue; }
     if (out.some(x=> x.filter(n=>s.includes(n)).length>3)){ guard++; continue; }
     out.push(s);
@@ -326,14 +437,12 @@ function generatePortfolio(draws, analysis, params){
   const probs=vals.map(v=>Math.round(1+99*(v-min)/(max-min+1e-9)));
   return out.map((set,i)=>({set, prob:probs[i]}));
 }
-
 function buildCandidates(){
   const hotZs=[0.8,1.0,1.2], coldZs=[-0.2,-0.6,-1.0];
   const weights=[[0.40,0.30,0.15,0.15,0.02],[0.45,0.25,0.15,0.15,0.02],[0.35,0.35,0.15,0.15,0.02]];
   const list=[]; for (const hz of hotZs) for (const cz of coldZs) for (const w of weights) list.push({hotZ:hz,coldZ:cz,weights:{G1:w[0],G2:w[1],G3:w[2],G4:w[3],G5:Math.min(w[4],0.05)}});
   return list;
 }
-
 async function phase1IfNeeded(){
   const draws = L5.get('L5.draws'); if (draws.length<10) return;
   const st=L5.get('L5.status'); const p=st.phase1_runs||{round:0,runs:0};
@@ -346,7 +455,8 @@ async function phase1IfNeeded(){
   const scores=[];
   for (const cand of cands){
     let total=0;
-    for (let i=0;i<last30.length-1;i++){ const upto=draws.slice(0, draws.length-(last30.length-i-1));
+    for (let i=0;i<last30.length-1;i++){
+      const upto=draws.slice(0, draws.length-(last30.length-i-1));
       const a=computeStats150(upto);
       const pf=generatePortfolio(upto,a,cand).slice(0,5);
       const next=last30[i+1];
@@ -362,9 +472,8 @@ async function phase1IfNeeded(){
   L5.set('L5.status', st);
 }
 
-// --------- Hooks ---------
+/* ========= Hooks ========= */
 function onNewDrawArrived(newDraw){
-  // HoF update with best rank among saved
   const saved=L5.get('L5.saved_sets');
   const results=[];
   for (const block of saved) for (const set of block.sets){ const inter=set.filter(x=>newDraw.main.includes(x)).length; const rank=inter===6?1:inter===5?2:inter===4?3:0; results.push({set,inter,rank}); }
@@ -373,10 +482,10 @@ function onNewDrawArrived(newDraw){
   L5.set('L5.saved_archived_round', newDraw.round);
   L5.set('L5.last_reco', null);
   const st=L5.get('L5.status'); st.phase1_runs={round:0,runs:0}; L5.set('L5.status', st);
-  document.getElementById('update-btn')?.classList.remove('hidden');
+  ensureUpdateBadge(); // 새 데이터 왔으니 배지 재계산
 }
 
-// --------- Screens ---------
+/* ========= Screens ========= */
 function render(){
   const route=location.hash||'#home';
   header.classList.toggle('hidden', route==='#home');
@@ -397,7 +506,6 @@ function cardLatestDraw(){
   const top=document.createElement('div'); top.textContent=`${last.round}회차  ·  ${last.date}`;
   const mid=document.createElement('div'); mid.className='chips'; last.main.forEach(n=>mid.appendChild(chipWinning(n))); mid.appendChild(chipBonus(last.bonus));
   const bot=document.createElement('div'); bot.className='grid grid-2';
-  // 안정성 강화: prize 객체가 null일 경우 '정보 없음' 표시
   const fmt=(v)=> v==null?'정보 없음': (typeof v==='number'? v.toLocaleString() : String(v));
   const r1l=document.createElement('div'); r1l.textContent='1등 금액 / 인원'; const r1v=document.createElement('div'); r1v.style.textAlign='right'; r1v.textContent=`${fmt(last.prize?.rank1?.amount)} / ${fmt(last.prize?.rank1?.winners)}`;
   const r2l=document.createElement('div'); r2l.textContent='2등 금액 / 인원'; const r2v=document.createElement('div'); r2v.style.textAlign='right'; r2v.textContent=`${fmt(last.prize?.rank2?.amount)} / ${fmt(last.prize?.rank2?.winners)}`;
@@ -406,7 +514,6 @@ function cardLatestDraw(){
   box.append(top,mid,bot);
   return box;
 }
-
 function renderHome(){
   const space=document.createElement('div'); space.className='home-top-space'; view.appendChild(space);
   view.appendChild(cardLatestDraw());
@@ -417,7 +524,6 @@ function renderHome(){
   btns.append(mk('당첨번호','#winning'), savedBtn, mk('추천','#recommend'), mk('명예의전당','#hall'), mk('분석','#analysis'));
   view.appendChild(btns);
 }
-
 function renderWinning(){
   view.appendChild(cardLatestDraw());
   const b=document.createElement('button'); b.className='btn btn-primary'; b.textContent='QR 스캔/업로드'; b.onclick=showQRModal; view.appendChild(b);
@@ -445,25 +551,36 @@ function renderSaved(){
   const saved=L5.get('L5.saved_sets');
   if (!saved.length){ view.appendChild(card(p('추천번호가 없습니다.'))); return; }
   const archivedRound=L5.get('L5.saved_archived_round')||0;
+
   saved.forEach((block,bi)=>{
     const wrap=document.createElement('div'); wrap.className='card';
     const title=document.createElement('div'); title.textContent=`${block.round}회차 예상번호 | D-7`; wrap.appendChild(title);
     const engineOk= !!L5.get('L5.analysisData') && (L5.get('L5.draws').length===L5.get('L5.status').count);
     wrap.appendChild(makeWarningCard(engineOk));
-    const sets=document.createElement('div'); sets.className='grid grid-5';
-    block.sets.forEach(set=>{
-      const box=document.createElement('div'); box.className='card';
-      const chips=document.createElement('div'); chips.className='chips';
-      if (archivedRound===last?.round){ for (const n of set) chips.appendChild(last.main.includes(n)?chipWinning(n):chipNumber(n)); }
-      else { for (const n of set) chips.appendChild(chipNumber(n)); }
-      box.appendChild(chips);
-      const res=document.createElement('div');
-      if (archivedRound===last?.round){ const k=set.filter(x=>last.main.includes(x)).length; res.textContent = (k===6?'1등':k===5?'2등':k===4?'3등':'낙첨'); }
-      else res.textContent='미추첨';
-      box.appendChild(res);
-      sets.appendChild(box);
+
+    // 30세트 → 6묶음(각 5게임)
+    const groups = groupInto(block.sets, CONFIG.GROUP_SIZE); // 6개 기대
+    groups.forEach((sets, gi)=>{
+      const gCard=document.createElement('div'); gCard.className='card';
+      const gTitle=document.createElement('div'); gTitle.textContent=`묶음 ${gi+1}`;
+      const grid=document.createElement('div'); grid.className='grid grid-5';
+
+      sets.forEach(set=>{
+        const box=document.createElement('div'); box.className='card';
+        const chips=document.createElement('div'); chips.className='chips';
+        if (archivedRound===last?.round){ for (const n of set) chips.appendChild(last.main.includes(n)?chipWinning(n):chipNumber(n)); }
+        else { for (const n of set) chips.appendChild(chipNumber(n)); }
+        box.appendChild(chips);
+        const res=document.createElement('div');
+        if (archivedRound===last?.round){ const k=set.filter(x=>last.main.includes(x)).length; res.textContent = (k===6?'치킨':k===5?'2등':k===4?'3등':'낙첨'); }
+        else res.textContent='미추첨';
+        box.appendChild(res);
+        grid.appendChild(box);
+      });
+      gCard.append(gTitle, grid);
+      wrap.appendChild(gCard);
     });
-    wrap.appendChild(sets);
+
     const del=document.createElement('button'); del.className='btn btn-danger'; del.textContent='이 카드 삭제';
     if (archivedRound===last?.round) del.style.display='none';
     del.onclick=()=>{ const arr=L5.get('L5.saved_sets'); arr.splice(bi,1); L5.set('L5.saved_sets',arr); render(); };
@@ -476,37 +593,62 @@ function renderRecommend(){
   const analysis=L5.get('L5.analysisData'); const draws=L5.get('L5.draws');
   const engineOk = !!analysis && (draws.length===L5.get('L5.status').count);
   view.appendChild(makeWarningCard(engineOk));
+
+  // 제외수 선택 그리드
   const grid=document.createElement('div'); grid.className='grid grid-10';
   const mask=new Set(L5.get('L5.exclude_mask'));
-  for (let n=1;n<=45;n++){ const node = mask.has(n) ? chipNumber(n,true) : chipWinning(n);
+  for (let n=1;n<=45;n++){
+    const node = mask.has(n) ? chipNumber(n,true) : chipWinning(n);
     node.onclick=()=>{ const m=new Set(L5.get('L5.exclude_mask')); if (m.has(n)) m.delete(n); else m.add(n); L5.set('L5.exclude_mask',Array.from(m)); renderRecommend(); };
     grid.appendChild(node);
   }
   view.appendChild(card([h2('제외수 선택'),grid]));
-  const run=document.createElement('button'); run.className='btn btn-primary'; run.textContent='추천 실행'; view.appendChild(run);
-  const resultBox=document.createElement('div'); view.appendChild(resultBox);
-  run.onclick=async()=>{
-    run.disabled=true;
-    showLoader('최적 파라미터로 번호 생성 중...');
 
-    // UX 개선: 인위적 딜레이 제거 및 비동기 처리
-    await new Promise(resolve => setTimeout(resolve, 50)); // UI 업데이트를 위한 짧은 지연
+  // 버튼 2개: 제외수 리셋 / 추천 실행
+  const btnRow=document.createElement('div'); btnRow.style.display='flex'; btnRow.style.gap='8px';
+  const resetBtn=document.createElement('button'); resetBtn.className='btn'; resetBtn.textContent='제외수 리셋';
+  resetBtn.onclick=()=>{ L5.set('L5.exclude_mask', []); renderRecommend(); };
+  const run=document.createElement('button'); run.className='btn btn-primary'; run.textContent='추천 실행';
+  btnRow.append(resetBtn, run);
+  view.appendChild(btnRow);
+
+  const resultBox=document.createElement('div'); view.appendChild(resultBox);
+
+  run.onclick=async()=>{
+    run.disabled=true; resetBtn.disabled=true;
+    showLoader('최적 파라미터로 번호 생성 중...');
+    // UX: 2초 로딩 애니메이션 유지
+    await new Promise(r => setTimeout(r, 2000));
 
     if (!L5.get('L5.analysisData')) await phase1IfNeeded();
-    const draws=L5.get('L5.draws'); const analysis=L5.get('L5.analysisData'); const g1=groupG1(draws);
-    const m=new Set(L5.get('L5.exclude_mask')); for (const n of g1) if (m.has(n)) m.delete(n); L5.set('L5.exclude_mask',Array.from(m));
-    
+    const draws=L5.get('L5.draws'); const analysis=L5.get('L5.analysisData');
+    // G1 보호: 제외수에서 제거
+    const g1=groupG1(draws); const m=new Set(L5.get('L5.exclude_mask')); for (const n of g1) if (m.has(n)) m.delete(n); L5.set('L5.exclude_mask',Array.from(m));
+
     const pf = generatePortfolio(draws, analysis, analysis.optimizedParameters);
-    
-    resultBox.innerHTML='';
+
+    // 저장: 30세트 묶음 형태
     const block={ round: L5.get('L5.status').last_round+1, sets: pf.map(x=>x.set) };
     const saved=L5.get('L5.saved_sets'); saved.unshift(block); L5.set('L5.saved_sets', saved.slice(0, CONFIG.MAX_SAVED_SETS));
-    
-    const gridR=document.createElement('div'); gridR.className='grid grid-5';
-    pf.forEach(item=>{ const c=document.createElement('div'); c.className='card'; const chips=document.createElement('div'); chips.className='chips'; item.set.forEach(n=>chips.appendChild(chipNumber(n))); const prob=document.createElement('div'); prob.textContent=item.prob+'%'; c.append(chips,prob); gridR.appendChild(c); });
-    resultBox.appendChild(gridR);
-    
-    run.disabled=false;
+
+    // 결과 렌더: 6묶음 × 5게임
+    resultBox.innerHTML='';
+    const groups = groupInto(pf, CONFIG.GROUP_SIZE); // 6개 기대
+    groups.forEach((items, gi)=>{
+      const gCard=document.createElement('div'); gCard.className='card';
+      const gTitle=document.createElement('div'); gTitle.textContent=`묶음 ${gi+1}`;
+      const gridR=document.createElement('div'); gridR.className='grid grid-5';
+      items.forEach(item=>{
+        const c=document.createElement('div'); c.className='card';
+        const chips=document.createElement('div'); chips.className='chips';
+        item.set.forEach(n=>chips.appendChild(chipNumber(n)));
+        const prob=document.createElement('div'); prob.textContent=item.prob+'%';
+        c.append(chips,prob); gridR.appendChild(c);
+      });
+      gCard.append(gTitle, gridR); resultBox.appendChild(gCard);
+    });
+
+    run.disabled=false; resetBtn.disabled=false;
     hideLoader();
     L5.set('L5.last_reco', pf);
   };
@@ -538,31 +680,90 @@ function renderAnalysis(){
   view.appendChild(c1);
 
   const c2=card([h2('G1~G5 조정 시뮬레이션 당첨횟수'), p('백테스트 결과는 Phase 1 수행 시 계산됩니다.')]);
+  c2.classList.add('multiline'); // 분석 카드 줄바꿈 허용
   view.appendChild(c2);
 
   const draws=L5.get('L5.draws');
   const c3=card([h2('당첨번호 수집 기록'), row('총 이력 수', String(draws.length)), row('최신 회차', String(L5.get('L5.status').last_round)) ]);
+  c3.classList.add('multiline');
   view.appendChild(c3);
 
-  const c4=card([h2('에러/충돌 내용'), p('현재 없음')]); view.appendChild(c4);
-  const c5=card([h2('패치 정보'), row('패치', L5.get('L5.meta').patch), row('빌드', String(new Date(L5.get('L5.meta').build).toLocaleString('ko-KR')) )]); view.appendChild(c5);
+  const c4=card([h2('에러/충돌 내용'), p('현재 없음')]); c4.classList.add('multiline'); view.appendChild(c4);
+  const c5=card([h2('패치 정보'), row('패치', L5.get('L5.meta').patch), row('빌드', String(new Date(L5.get('L5.meta').build).toLocaleString('ko-KR')) )]); c5.classList.add('multiline'); view.appendChild(c5);
 }
 
-// ---------- Toast ----------
+/* ========= Update badge logic ========= */
+function dataIncomplete(){
+  const draws=L5.get('L5.draws'); const last=draws.at(-1);
+  if (!last) return true;
+  if (!last.prize?.rank2 || !last.prize?.rank3) return true; // 2,3등 정보 누락
+  return false;
+}
+function ensureUpdateBadge(){
+  const should = swWaiting || dataIncomplete() || (isSatAfter2045() && !L5.get('L5.sat_pulled_ok'));
+  updateBtn.classList.toggle('hidden', !should);
+}
+
+/* ========= Toast ========= */
 let toastTimer=null;
 function toast(msg){ const ex=document.getElementById('toast'); ex?.remove(); const t=document.createElement('div'); t.id='toast'; t.textContent=msg; Object.assign(t.style,{position:'fixed',left:'50%',bottom:'100px',transform:'translateX(-50%)',background:'#333',color:'#fff',padding:'10px 16px',borderRadius:'999px',zIndex:9999,opacity:'0.95'}); document.body.appendChild(t); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.remove(), 2500); }
 
-// ---------- Boot ----------
+/* ========= Boot ========= */
 async function boot(){
   render();
+
+  // 월요일 07:00 이후 1회 자동 정리(중복 방지)
+  if (isMonAfter7()){
+    const today = nowKST().toISOString().slice(0,10);
+    if (L5.get('L5.saved_cleared_at') !== today){
+      L5.set('L5.saved_sets', []);
+      L5.set('L5.saved_cleared_at', today);
+    }
+  }
+
+  // 최초 전체백필
   if (L5.get('L5.status').count === 0) {
     await initialBackfill().catch(console.warn);
     showLoader('엔진 최적화 중 (Phase 1)...');
     await phase1IfNeeded().catch(console.warn);
     hideLoader();
-  } else {
-    scheduleWatchdog();
-    phase1IfNeeded().catch(console.warn);
   }
+
+  // 토요일 20:45 이후 접속: 홈 전 로딩 수집
+  if (isSatAfter2045()){
+    showLoader('최신 회차 수집 중...');
+    let ok = await tryFetchLatestOnce();
+    if (!ok){ await new Promise(r=>setTimeout(r, 800)); ok = await tryFetchLatestOnce(); }
+    if (ok){ L5.set('L5.sat_pulled_ok', true); await phase1IfNeeded().catch(console.warn); hideLoader(); }
+    else { L5.set('L5.sat_pulled_ok', false); hideLoader(); }
+  }
+
+  ensureUpdateBadge();
+  // Phase1 최신화는 백그라운드 허용
+  phase1IfNeeded().catch(console.warn);
 }
 document.addEventListener('DOMContentLoaded', boot);
+
+/* ========= Update button action ========= */
+updateBtn.addEventListener('click', async ()=>{
+  showLoader('업데이트 적용 중...');
+  try{
+    // 1) SW 즉시 활성화
+    if (navigator.serviceWorker?.controller){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) reg.waiting?.postMessage({type:'SKIP_WAITING'});
+    }
+    // 2) 토요일 수집 실패한 경우 한 번 더 시도
+    if (isSatAfter2045() && !L5.get('L5.sat_pulled_ok')){
+      await tryFetchLatestOnce();
+    }
+    // 3) Phase1 보정
+    await phase1IfNeeded().catch(()=>{});
+  } finally {
+    hideLoader();
+    location.reload();
+  }
+});
+
+/* ========= Navigation ========= */
+function nav(hash){ if (location.hash !== hash) location.hash = hash; else render(); }

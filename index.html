@@ -12,12 +12,14 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- 로딩 오버레이 -->
   <div id="loading-overlay" class="loading-overlay hidden">
     <div class="spinner"></div>
     <p id="loading-text">처리 중...</p>
   </div>
 
   <div id="app">
+    <!-- 공통 헤더 -->
     <header id="app-header" class="header hidden">
       <div class="header-title" id="header-title">제목</div>
       <button class="home-btn" id="home-btn" aria-label="홈으로">
@@ -25,10 +27,13 @@
       </button>
     </header>
 
+    <!-- 뷰포트 -->
     <main id="view" class="view"></main>
 
+    <!-- 화면 FAB -->
     <button id="fab-top" class="fab hidden" aria-label="맨 위로">↑</button>
 
+    <!-- 푸터 -->
     <footer class="footer">
       <div class="footer-inner">
         <span id="patch-label">patch patch_0.104</span>
@@ -37,16 +42,19 @@
     </footer>
   </div>
 
+  <!-- 경고 카드 템플릿 -->
   <template id="tpl-warning-card">
     <div class="warning-card"></div>
   </template>
 
+  <!-- 앱 스크립트 -->
+  <script type="module" src="app.js"></script>
   <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js')
         .then(reg => {
-          if (reg.waiting) window.dispatchEvent(new CustomEvent('sw-waiting'));
+          if (reg.waiting) { window.dispatchEvent(new CustomEvent('sw-waiting')); }
           reg.addEventListener('updatefound', () => {
             const nw = reg.installing;
             if (!nw) return;
@@ -61,7 +69,5 @@
     });
   }
   </script>
-
-  <script type="module" src="app.js"></script>
 </body>
 </html>

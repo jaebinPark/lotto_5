@@ -1,145 +1,130 @@
-/* sw.js — Lotto Lab Pro PWA Service Worker (FULL REPLACE)
- * 캐시 전략:
- *  - 앱 셸(HTML/CSS/JS/아이콘/매니페스트): Stale-While-Revalidate
- *  - 로또 API(dhlottery): Network-First(+타임아웃) → 실패시 캐시
- *  - 기타 GET 요청: 기본적으로 Stale-While-Revalidate
- * 업데이트:
- *  - 클라이언트에서 postMessage({type:'SKIP_WAITING'}) 수신 시 즉시 활성화
+/* sw.js — Lotto Lab Pro PWA Service Worker (v104)
+ * 전략:
+ * - 정적 파일: Cache-First
+ * - API(dhlottery, r.jina.ai): Network-First(+타임아웃) → 실패 시 캐시
+ * - 업데이트: postMessage({type:'SKIP_WAITING'}) 수신 시 즉시 활성화
  */
 
-const SW_VERSION = 'v104'; // 캐시 버전 (필요 시 변경)
-const SHELL_CACHE = `shell-${SW_VERSION}`;
-const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
-const API_CACHE = `api-${SW_VERSION}`;
+const CACHE_VERSION = 'v104';
+const STATIC_CACHE = `static-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 
-// 앱 셸 프리캐시 (루트에 배포한 파일 경로 기준)
-const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './app.js',
-  './style.css',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+/* 배포 자원 목록 (필요시 추가 가능) */
+const STATIC_ASSETS = [
+  '/',                // GitHub Pages에서 index.html을 이 경로로 서비스
+  '/index.html',
+  '/style.css',
+  '/app.js',
+  '/manifest.webmanifest',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
 ];
 
-// 네트워크 우선(타임아웃) 헬퍼
-async function networkFirstWithTimeout(req, cacheName, timeoutMs = 7000) {
-  const cache = await caches.open(cacheName);
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-
-    const netRes = await fetch(req, { signal: ctrl.signal, cache: 'no-store' });
-    clearTimeout(t);
-
-    if (netRes && netRes.ok) {
-      cache.put(req, netRes.clone());
-      return netRes;
-    }
-    // 네트워크는 응답했지만 ok 아님 → 캐시 폴백
-    const cached = await cache.match(req, { ignoreSearch: false });
-    if (cached) return cached;
-    return netRes; // 그대로 반환(오류상태)
-  } catch (err) {
-    // 네트워크 실패 → 캐시 폴백
-    const cached = await cache.match(req, { ignoreSearch: false });
-    if (cached) return cached;
-    throw err;
-  }
-}
-
-// Stale-While-Revalidate 헬퍼(정적 리소스용)
-async function staleWhileRevalidate(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cachedPromise = cache.match(req, { ignoreSearch: false });
-  const netPromise = fetch(req, { cache: 'no-store' })
-    .then(res => {
-      if (res && res.ok) cache.put(req, res.clone());
-      return res;
-    })
-    .catch(() => undefined);
-
-  const cached = await cachedPromise;
-  return cached || (await netPromise) || new Response('', { status: 504 });
-}
-
-/* ========= Install ========= */
+/* ====== Install: 정적 자원 프리캐시 ====== */
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => {
-        // 기본적으로 대기(기존 세션 존중). 즉시 활성화는 메시지 통해 수행.
-        // self.skipWaiting();
-      })
+    (async () => {
+      const cache = await caches.open(STATIC_CACHE);
+      await cache.addAll(STATIC_ASSETS);
+      // 대기 없이 바로 대체 준비
+      await self.skipWaiting();
+    })()
   );
 });
 
-/* ========= Activate ========= */
+/* ====== Activate: 오래된 캐시 정리 + 클레임 ====== */
 self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    // 오래된 캐시 정리
-    const keys = await caches.keys();
-    await Promise.all(
-      keys
-        .filter(k => ![SHELL_CACHE, RUNTIME_CACHE, API_CACHE].includes(k))
-        .map(k => caches.delete(k))
-    );
-    await self.clients.claim();
-  })());
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter(k => k !== STATIC_CACHE && k !== RUNTIME_CACHE)
+          .map(k => caches.delete(k))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
-/* ========= Message (강제 업데이트) ========= */
+/* ====== 메시지: 즉시 업데이트 적용 ====== */
 self.addEventListener('message', (event) => {
-  const data = event.data;
-  if (data && data.type === 'SKIP_WAITING') {
+  if (event?.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
 
-/* ========= Fetch ========= */
+/* ====== 유틸: 네트워크 우선(타임아웃) ====== */
+async function networkFirstWithTimeout(request, timeoutMs = 6000) {
+  const cache = await caches.open(RUNTIME_CACHE);
+
+  // 타임아웃 프라미스
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('network-timeout')), timeoutMs)
+  );
+
+  try {
+    const response = await Promise.race([fetch(request), timeout]);
+    // 성공 시 러ntime 캐시에 갱신 저장(200응답만)
+    if (response && response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (err) {
+    // 네트워크 실패 → 캐시 폴백
+    const cached = await cache.match(request);
+    if (cached) return cached;
+
+    // 캐시에도 없으면 정적 캐시 시도
+    const staticMatch = await caches.match(request);
+    if (staticMatch) return staticMatch;
+
+    // 최종 폴백: 간단한 503
+    return new Response('Offline or upstream failed', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+  }
+}
+
+/* ====== 유틸: 캐시 우선 ====== */
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    // 정적/런타임 구분 없이 성공 응답 캐시 (GET만)
+    if (request.method === 'GET' && response && response.ok) {
+      const cache = await caches.open(RUNTIME_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    // 캐시/네트워크 모두 실패
+    return new Response('Offline', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+  }
+}
+
+/* ====== fetch 라우팅 ====== */
 self.addEventListener('fetch', (event) => {
   const req = event.request;
 
-  // 비-GET 요청은 건너뜀(네트워크로 직행)
+  // POST/PUT 등은 캐싱하지 않음
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+  const isApi =
+    url.hostname.includes('dhlottery.co.kr') ||
+    url.hostname.includes('r.jina.ai');
 
-  // 동일 출처의 앱 셸(정적) → Stale-While-Revalidate
-  const isSameOrigin = url.origin === self.location.origin;
-  const isShellAsset =
-    isSameOrigin &&
-    (url.pathname === '/' ||
-      url.pathname.endsWith('.html') ||
-      url.pathname.endsWith('.js') ||
-      url.pathname.endsWith('.css') ||
-      url.pathname.endsWith('.png') ||
-      url.pathname.endsWith('.svg') ||
-      url.pathname.endsWith('.webmanifest') ||
-      url.pathname.startsWith('/icons/'));
-
-  if (isShellAsset) {
-    event.respondWith(staleWhileRevalidate(req, SHELL_CACHE));
-    return;
+  // API: Network-First, 그 외: Cache-First
+  if (isApi) {
+    event.respondWith(networkFirstWithTimeout(req, 6000));
+  } else {
+    event.respondWith(cacheFirst(req));
   }
-
-  // 로또 API (dhlottery) → Network-First(+타임아웃)
-  const isLottoApi =
-    /dhlottery\.co\.kr/.test(url.hostname);
-
-  if (isLottoApi) {
-    event.respondWith(networkFirstWithTimeout(req, API_CACHE, 7000));
-    return;
-  }
-
-  // 기타 GET → Stale-While-Revalidate(런타임 캐시)
-  event.respondWith(staleWhileRevalidate(req, RUNTIME_CACHE));
 });
-
-/* ========= Fallbacks (선택: 오프라인 페이지 등 필요 시) =========
-self.addEventListener('fetch', (event) => {
-  // 위 조건들 이후 커스텀 폴백을 추가하고 싶으면 여기에 작성
-});
-*/

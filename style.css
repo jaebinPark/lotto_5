@@ -13,7 +13,12 @@
 }
 
 *{ box-sizing:border-box; }
-html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif; }
+html,body{ 
+  margin:0; padding:0; 
+  background:var(--bg); 
+  color:var(--text); 
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif; 
+}
 .view{ padding: 16px 16px 80px; min-height: calc(100dvh - 56px - 60px); }
 .header{ height:56px; position:sticky; top:0; display:flex; align-items:center; justify-content:center; background:var(--card-bg); backdrop-filter: blur(8px); border-bottom:1px solid rgba(0,0,0,0.06); z-index:5; }
 .header.hidden{ display:none; }
@@ -55,7 +60,7 @@ html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-fa
 .chip.win-5{ background:#2E7D32; color:#fff; }    /* 41-45 green */
 .chip.bonus{ outline:2px solid #000; outline-offset: -2px; }
 
-/* Warning card (no text) */
+/* Warning card */
 .warning-card{ width:100%; height:18px; border-radius:10px; }
 .warning-blue{ background:#1976D2; }
 .warning-red{ background:#E53935; }
@@ -78,7 +83,7 @@ h1,h2,h3,p,span,button,div{ overflow:hidden; text-overflow:ellipsis; white-space
 .modal{ background:#fff; border-radius:16px; padding:16px; width:min(420px, 90vw); }
 .modal .btn{ width:auto; }
 
-/* UX 개선: 로딩 오버레이 스타일 추가 */
+/* UX 개선: 로딩 오버레이 */
 .loading-overlay {
   position: fixed;
   inset: 0;
@@ -91,9 +96,7 @@ h1,h2,h3,p,span,button,div{ overflow:hidden; text-overflow:ellipsis; white-space
   z-index: 9999;
   color: var(--deep);
 }
-.loading-overlay.hidden {
-  display: none;
-}
+.loading-overlay.hidden { display: none; }
 .spinner {
   width: 48px;
   height: 48px;
@@ -109,24 +112,3 @@ h1,h2,h3,p,span,button,div{ overflow:hidden; text-overflow:ellipsis; white-space
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
-
-/* === 가로 오버플로우 방지 & 기본 줄바꿈 허용 === */
-html, body { overflow-x: hidden; }
-
-h1, h2, h3, p, span, button, div {
-  white-space: normal; /* 기본 줄바꿈 허용 */
-  text-overflow: clip;
-  overflow-wrap: anywhere; /* 긴 숫자/URL도 자동 개행 */
-}
-
-/* 번호칩 레이아웃은 자동 줄바꿈 */
-.chips { flex-wrap: wrap; min-width: 0; }
-
-/* 분석 화면 카드 내용은 항상 줄바꿈 허용(보강) */
-.analysis-card * { white-space: normal !important; overflow-wrap: anywhere; }
-
-/* 추천화면: 버튼 두 개 가로 배치 */
-.reco-actions {
-display:flex; gap:8px; margin:12px 0;
-}
-.reco-actions .btn { flex:1; }

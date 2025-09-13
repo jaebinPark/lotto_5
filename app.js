@@ -304,7 +304,25 @@ function groupG5NeverFollowed(draws){
 }
 class PCG64 {
   constructor(seed=0n){ this.state = seed||42n; this.inc=1442695040888963407n; }
-  next(){ this.state = this.state * 6364136223846793005n + (this.inc|1n); let x = (this.state>>64n) ^ this.state; x = (x>>22n)&((1n<<64n)-1n); const rot=Number(this.state>>122n)&63; const res = Number(((x>>rot)|(x<<((-rot)&63))) & ((1n<<64n)-1n))>>>0; return res/2**32; }
+  next() {
+    // 상태 업데이트
+    this.state = this.state * 6364136223846793005n + (this.inc | 1n);
+
+    // Xorshift
+    let x = (this.state >> 64n) ^ this.state;
+    x = (x >> 22n) & ((1n << 64n) - 1n);
+
+    // 회전값 계산
+    const rot = Number(this.state >> 122n) & 63;
+
+    // [버그 수정] BigInt와 Number의 혼합 연산 오류를 해결하고 가독성을 위해 코드를 분리합니다.
+    const bigIntRot = BigInt(rot);
+    const leftShiftAmount = BigInt((-rot) & 63);
+    const rotated = (x >> bigIntRot) | (x << leftShiftAmount);
+    const result32bit = Number(rotated & ((1n << 64n) - 1n)) >>> 0;
+
+    return result32bit / (2 ** 32);
+  }
 }
 function passesHard(set, analysis, draws, g1){
     // [안정성 강화] 1. 분석 데이터 유효성 검사

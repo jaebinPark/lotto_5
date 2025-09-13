@@ -1,0 +1,36 @@
+name: Lotto Data Sync
+
+on:
+  workflow_dispatch: # GitHub Actions 탭에서 수동으로 실행 가능
+  schedule:
+    # 매일 오전 10시에 실행 (UTC 기준 1시)
+    - cron: '0 1 * * *'
+
+jobs:
+  fetch-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # rebase를 위해 전체 git 히스토리를 가져옵니다.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch latest lotto data
+        run: node scripts/fetch_all.js
+
+      - name: Commit and Push if changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
+          git add -A
+          # 변경사항이 없으면 커밋 없이 종료
+          if git diff-index --quiet HEAD; then echo "No changes to commit."; exit 0; fi
+          git commit -m "chore(data): update lotto draws by action"
+          git push

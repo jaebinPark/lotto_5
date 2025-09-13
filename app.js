@@ -397,7 +397,8 @@ function generatePortfolio(draws, analysis, params, exclusionsOverride = null){
   let seed=0n; for (const ch of seedStr) seed = (seed*131n + BigInt(ch.charCodeAt(0))) & ((1n<<128n)-1n);
   const rng=new PCG64(seed);
 
-  const exclusions=new Set(exclusionsOverride ?? L5.get(STORAGE_KEYS.EXCLUDE_MASK)||[]);
+  // [버그 수정] ?? 와 || 연산자는 괄호 없이 함께 사용할 수 없어 SyntaxError가 발생하므로 수정합니다.
+  const exclusions = new Set(exclusionsOverride ?? L5.get(STORAGE_KEYS.EXCLUDE_MASK, []));
   const out=[]; let guard=0;
   while (out.length<CONFIG.PORTFOLIO_SIZE && guard<4000){
     const s = sampleSet(rng, params.weights, gsets, exclusions);

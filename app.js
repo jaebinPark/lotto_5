@@ -593,10 +593,10 @@ function createSavedBlock(block, blockIndex, lastDraw, isArchived) {
   const items = (block.sets || []).map(s => (Array.isArray(s) ? { set: s, prob: null, excl: null } : s));
   const groups = groupInto(items, CONFIG.GROUP_SIZE);
   const selectedGroupKey = L5.get(STORAGE_KEYS.SAVED_GROUP_SELECTED, null);
+  const engineOk = !!L5.get(STORAGE_KEYS.ANALYSIS_DATA) && (L5.get(STORAGE_KEYS.DRAWS, []).length === L5.get(STORAGE_KEYS.STATUS).count);
 
   groups.forEach((sets, gi) => {
     wrap.appendChild(createSavedGroup(sets, gi, blockIndex, lastDraw, isArchived, selectedGroupKey, engineOk));
-    const engineOk = !!L5.get(STORAGE_KEYS.ANALYSIS_DATA) && (L5.get(STORAGE_KEYS.DRAWS, []).length === L5.get(STORAGE_KEYS.STATUS).count);
   });
 
   const del = document.createElement('button');

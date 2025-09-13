@@ -305,18 +305,55 @@ class PCG64 {
   constructor(seed=0n){ this.state = seed||42n; this.inc=1442695040888963407n; }
   next(){ this.state = this.state * 6364136223846793005n + (this.inc|1n); let x = (this.state>>64n) ^ this.state; x = (x>>22n)&((1n<<64n)-1n); const rot=Number(this.state>>122n)&63; const res = Number(((x>>rot)|(x<<((-rot)&63))) & ((1n<<64n)-1n))>>>0; return res/2**32; }
 }
-function oddEvenKey(set){ const o=set.filter(x=>x%2).length; return o+':'+(6-o); }
-function sumOf(a){ return a.reduce((p,c)=>p+c,0); }
 function passesHard(set, analysis, draws, g1){
-  // 방어 코드: analysis 객체가 유효하지 않으면 즉시 실패 처리하여 오류 방지
-  if (!analysis || !analysis.sumRange || !analysis.allowedOddEvenRatios) return false;
-  const s = sumOf(set); const [lo,hi]=analysis.sumRange; if (s<lo||s>hi) return false; // 기존 코드
-  if (!analysis.allowedOddEvenRatios.includes(oddEvenKey(set))) return false; // 기존 코드
-  const bands=[[1,9],[10,19],[20,29],[30,39],[40,45]], lim=[3,3,3,3,2];
-  for (let i=0;i<bands.length;i++){ const [a,b]=bands[i]; const c=set.filter(x=>x>=a&&x<=b).length; if (c>lim[i]) return false; }
-  for (const d of draws){ const inter=d.main.filter(x=>set.includes(x)).length; if (inter>=3) return false; }
-  if (set.filter(x=>g1.has(x)).length>2) return false;
-  return true;
+    // [안정성 강화] 1. 분석 데이터 유효성 검사
+    // 이 데이터가 없으면 어떤 제약조건도 검사할 수 없으므로 즉시 실패 처리합니다.
+    if (!analysis || !analysis.sumRange || !analysis.allowedOddEvenRatios) {
+        return false;
+    }
+
+    // [하드 제약 1] 총합 범위 검사
+    const setSum = set.reduce((p, c) => p + c, 0);
+    const [minSum, maxSum] = analysis.sumRange;
+    if (setSum < minSum || setSum > maxSum) {
+        return false;
+    }
+
+    // [하드 제약 2] 홀/짝 비율 검사
+    const oddCount = set.filter(num => num % 2 !== 0).length;
+    const evenCount = 6 - oddCount;
+    const ratioKey = `${oddCount}:${evenCount}`;
+    if (!analysis.allowedOddEvenRatios.includes(ratioKey)) {
+        return false;
+    }
+
+    // [하드 제약 3] 구간별 개수 제한 검사
+    const bands = [[1, 9], [10, 19], [20, 29], [30, 39], [40, 45]];
+    const limits = [3, 3, 3, 3, 2];
+    for (let i = 0; i < bands.length; i++) {
+        const [start, end] = bands[i];
+        const countInBand = set.filter(num => num >= start && num <= end).length;
+        if (countInBand > limits[i]) {
+            return false;
+        }
+    }
+
+    // [하드 제약 4] 과거 당첨번호와 3개 이상 중복 제한
+    for (const draw of draws) {
+        const intersectionCount = draw.main.filter(num => set.includes(num)).length;
+        if (intersectionCount >= 3) {
+            return false;
+        }
+    }
+
+    // [하드 제약 5] G1 그룹 번호 2개 초과 포함 제한
+    const g1Count = set.filter(num => g1.has(num)).length;
+    if (g1Count > 2) {
+        return false;
+    }
+
+    // 모든 제약조건을 통과했습니다.
+    return true;
 }
 function sampleSet(rng, weights, gsets, exclusions){
   const cand=[];

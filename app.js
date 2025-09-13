@@ -359,15 +359,6 @@ function buildCandidates(){
   const list=[]; for (const hz of hotZs) for (const cz of coldZs) for (const w of weights) list.push({hotZ:hz,coldZ:cz,weights:{G1:w[0],G2:w[1],G3:w[2],G4:w[3],G5:Math.min(w[4],0.05)}});
   return list;
 }
-// in boot()
-if (isMonAfter7() && !L5.get(STORAGE_KEYS.WEEKLY_SIM_DONE, false)){ // 1. 여기서 값을 읽고
-    // ...
-    await phase1IfNeeded(); // 2. 시간이 걸리는 작업을 기다린 후
-    await phase1IfNeeded();
-    await phase1IfNeeded();
-    L5.set(STORAGE_KEYS.WEEKLY_SIM_DONE, true); // 3. 여기서 값을 씁니다.
-    // ...
-}
 async function doPhase1Simulation() {
   const draws = L5.get(STORAGE_KEYS.DRAWS, []);
   if (draws.length < CONFIG.BACKTEST_WINDOW) {

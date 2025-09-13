@@ -105,9 +105,14 @@ html,body{
 /* Chips */
 .chips{ display:flex; flex-wrap:wrap; gap:8px; }
 .chip{
-  width:40px; height:40px; min-width:40px; min-height:40px;
+  /* 고정 크기를 제거하고 반응형으로 변경 */
+  width: 100%;
+  max-width: 40px; /* 데스크탑 등 큰 화면에서의 최대 크기 */
+  aspect-ratio: 1 / 1; /* 항상 1:1 비율을 유지하여 원형을 보장 */
   border-radius:50%; display:flex; align-items:center; justify-content:center;
   font-weight:900; user-select:none;
+  font-size: clamp(0.6rem, 3vw, 1rem); /* 화면 크기에 따라 폰트 크기 자동 조절 */
+  margin: auto; /* 그리드 셀 안에서 중앙 정렬 */
 }
 .chip.num{ background: var(--chip-num-bg); color: var(--chip-num-text); border:1.5px solid var(--chip-border); }
 .chip.num.selected{

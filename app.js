@@ -307,8 +307,10 @@ class PCG64 {
 function oddEvenKey(set){ const o=set.filter(x=>x%2).length; return o+':'+(6-o); }
 function sumOf(a){ return a.reduce((p,c)=>p+c,0); }
 function passesHard(set, analysis, draws, g1){
-  const s = sumOf(set); const [lo,hi]=analysis.sumRange; if (s<lo||s>hi) return false;
-  if (!analysis.allowedOddEvenRatios.includes(oddEvenKey(set))) return false;
+  // 방어 코드: analysis 객체가 유효하지 않으면 즉시 실패 처리하여 오류 방지
+  if (!analysis || !analysis.sumRange || !analysis.allowedOddEvenRatios) return false;
+  const s = sumOf(set); const [lo,hi]=analysis.sumRange; if (s<lo||s>hi) return false; // 기존 코드
+  if (!analysis.allowedOddEvenRatios.includes(oddEvenKey(set))) return false; // 기존 코드
   const bands=[[1,9],[10,19],[20,29],[30,39],[40,45]], lim=[3,3,3,3,2];
   for (let i=0;i<bands.length;i++){ const [a,b]=bands[i]; const c=set.filter(x=>x>=a&&x<=b).length; if (c>lim[i]) return false; }
   for (const d of draws){ const inter=d.main.filter(x=>set.includes(x)).length; if (inter>=3) return false; }
@@ -357,32 +359,43 @@ function buildCandidates(){
   const list=[]; for (const hz of hotZs) for (const cz of coldZs) for (const w of weights) list.push({hotZ:hz,coldZ:cz,weights:{G1:w[0],G2:w[1],G3:w[2],G4:w[3],G5:Math.min(w[4],0.05)}});
   return list;
 }
-async function phase1IfNeeded(){
-  const draws = L5.get(STORAGE_KEYS.DRAWS, []); if (draws.length<10) return;
-  const st=L5.get(STORAGE_KEYS.STATUS); const p=st.phase1_runs||{round:0,runs:0};
-  if (p.round===st.last_round && p.runs>=3) return;
-  const stats=computeStats150(draws);
-  const cands=buildCandidates();
-  const last30 = lastND(draws, CONFIG.BACKTEST_WINDOW);
-  function hitScore(k){ return k<3?0 : k===3?1 : k===4?3 : k===5?10 : 100; }
-  const scores=[];
-  for (const cand of cands){
-    let total=0;
-    for (let i=0;i<last30.length-1;i++){
-      const upto=draws.slice(0, draws.length-(last30.length-i-1));
-      const a=computeStats150(upto);
-      const pf=generatePortfolio(upto,a,cand).slice(0,5);
-      const next=last30[i+1];
-      const best=Math.max(...pf.map(s=> s.set.filter(x=>next.main.includes(x)).length));
-      total+=hitScore(best);
-    }
-    scores.push({cand,total});
+async function doPhase1Simulation() {
+  const draws = L5.get(STORAGE_KEYS.DRAWS, []);
+  if (draws.length < CONFIG.BACKTEST_WINDOW) {
+    toast('데이터가 부족하여 시뮬레이션을 실행할 수 없습니다.');
+    return;
   }
-  scores.sort((a,b)=>b.total-a.total);
-  const best=scores[0].cand;
-  L5.set(STORAGE_KEYS.ANALYSIS_DATA, { ...stats, optimizedParameters:best, generatedAt: nowKST().toISOString() });
-  st.phase1_runs = { round: st.last_round, runs: (p.round===st.last_round ? p.runs+1 : 1) };
+  const stats = computeStats150(draws);
+  const cands = buildCandidates();
+  const last30 = lastND(draws, CONFIG.BACKTEST_WINDOW);
+  function hitScore(k) { return k < 3 ? 0 : k === 3 ? 1 : k === 4 ? 3 : k === 5 ? 10 : 100; }
+  const scores = [];
+  for (const cand of cands) {
+    let total = 0;
+    for (let i = 0; i < last30.length - 1; i++) {
+      const upto = draws.slice(0, draws.length - (last30.length - i - 1));
+      const a = computeStats150(upto);
+      const pf = generatePortfolio(upto, a, cand).slice(0, 5);
+      const next = last30[i + 1];
+      const best = Math.max(...pf.map(s => s.set.filter(x => next.main.includes(x)).length));
+      total += hitScore(best);
+    }
+    scores.push({ cand, total });
+  }
+  scores.sort((a, b) => b.total - a.total);
+  const best = scores[0].cand;
+  L5.set(STORAGE_KEYS.ANALYSIS_DATA, { ...stats, optimizedParameters: best, generatedAt: nowKST().toISOString() });
+
+  const st = L5.get(STORAGE_KEYS.STATUS);
+  const p = st.phase1_runs || { round: 0, runs: 0 };
+  st.phase1_runs = { round: st.last_round, runs: (p.round === st.last_round ? p.runs + 1 : 1) };
   L5.set(STORAGE_KEYS.STATUS, st);
+}
+async function phase1IfNeeded() {
+  const draws = L5.get(STORAGE_KEYS.DRAWS, []); if (draws.length < 10) return;
+  const st = L5.get(STORAGE_KEYS.STATUS); const p = st.phase1_runs || { round: 0, runs: 0 };
+  if (p.round === st.last_round && p.runs >= 3) return;
+  await doPhase1Simulation();
 }
 
 /* ========= Hooks ========= */
@@ -851,6 +864,28 @@ function renderAnalysis(){
 
   const c4=card([h2('에러/충돌 내용'), p('현재 없음')]); c4.classList.add('multiline'); view.appendChild(c4);
   const c5=card([h2('패치 정보'), row('패치', L5.get(STORAGE_KEYS.META).patch), row('빌드', String(new Date(L5.get(STORAGE_KEYS.META).build).toLocaleString('ko-KR')) )]); c5.classList.add('multiline'); view.appendChild(c5);
+
+  // 수동 시뮬레이션 버튼 추가
+  const rerunBtn = document.createElement('button');
+  rerunBtn.className = 'btn btn-primary';
+  rerunBtn.textContent = 'V11 엔진 시뮬레이션 재실행';
+  rerunBtn.style.marginTop = '16px';
+
+  rerunBtn.onclick = async () => {
+    rerunBtn.disabled = true;
+    showLoader('V11 엔진 시뮬레이션을 수동으로 실행합니다...');
+    try {
+      await doPhase1Simulation();
+      toast('엔진 시뮬레이션이 완료되었습니다.');
+      render(); // 분석 페이지를 다시 렌더링하여 결과 업데이트
+    } catch (e) {
+      console.error('Manual simulation failed', e);
+      toast('시뮬레이션 실행 중 오류가 발생했습니다.');
+    } finally {
+      hideLoader();
+    }
+  };
+  view.appendChild(rerunBtn);
 }
 
 /* ========= Update badge logic ========= */

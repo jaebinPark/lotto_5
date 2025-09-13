@@ -1,6 +1,6 @@
 {
-  "round": 1187,
-  "date": "2025-08-30",
+  "round": 1188,
+  "date": "2025-09-06",
   "main": [
     null,
     null,
@@ -9,14 +9,14 @@
     null,
     null
   ],
-  "bonus": 42,
+  "bonus": 9,
   "prize": {
     "rank1": {
-      "amount": 2619380012,
-      "winners": 11
+      "amount": 1074625172,
+      "winners": 24
     },
     "rank2": null,
     "rank3": null
   },
-  "totSellamnt": 117650847000
+  "totSellamnt": 116617971000
 }

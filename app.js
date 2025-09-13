@@ -1,3 +1,4 @@
+/* v1.0.5 - Force redeploy */
 /* app.js — 로또 Lab Pro (덮어쓰기 버전)
  * 모든 시간: KST (UTC+9)
  */

@@ -1,0 +1,19 @@
+lotto_5/
+├── js/
+│   ├── app.js           # 메인 진입점, 라우팅, 부팅 로직
+│   ├── api.js           # 모든 fetch 로직 (정적 JSON을 가져오도록 단순화)
+│   ├── storage.js       # localStorage 래퍼 (L5)
+│   ├── engine.js        # 핵심 추천 엔진 (phase1, generatePortfolio)
+│   ├── ui.js            # DOM 헬퍼 (p, h2, chip, card)
+│   └── views/
+│       ├── home.js      # renderHome()
+│       ├── saved.js     # renderSaved()와 그 헬퍼 함수들
+│       └── ...기타
+├── data/
+│   └── draws.json       # GitHub Actions에 의해 자동 생성
+├── scripts/
+│   └── fetch-data.js    # 데이터 생성을 위한 Node.js 스크립트
+├── index.html
+├── style.css
+├── sw.js
+└── ...

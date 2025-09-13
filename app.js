@@ -1,7 +1,7 @@
-/* app.js — Lotto Lab Pro (Full overwrite version)
+/* app.js — 로또 Lab Pro (덮어쓰기 버전)
  * 모든 시간: KST (UTC+9)
  */
-export const VERSION = 'patch_0.105';
+const VERSION = 'patch_0.104';
 
 const CONFIG = {
   STATS_WINDOW: 150,
@@ -13,21 +13,51 @@ const CONFIG = {
   CONCURRENT_FETCHES: 5
 };
 
+const STORAGE_KEYS = {
+  STATUS: 'L5.status',
+  DRAWS: 'L5.draws',
+  DRAWS_50: 'L5.draws50',
+  EXCLUDE_MASK: 'L5.exclude_mask',
+  HOF: 'L5.hof',
+  META: 'L5.meta',
+  ANALYSIS_DATA: 'L5.analysisData',
+  SAVED_SETS: 'L5.saved_sets',
+  SAVED_ARCHIVED_ROUND: 'L5.saved_archived_round',
+  SAVED_GROUP_SELECTED: 'L5.saved_group_selected',
+  LAST_RECO: 'L5.last_reco',
+  SAT_PULLED_OK: 'L5.sat_pulled_ok',
+  WEEKLY_SIM_DONE: 'L5.weekly_sim_done',
+  LAST_WEEKLY_RESET: 'L5.last_weekly_reset',
+};
+
+const ROUTES = {
+  HOME: '#home',
+  WINNING: '#winning',
+  SAVED: '#saved',
+  RECOMMEND: '#recommend',
+  HALL: '#hall',
+  ANALYSIS: '#analysis',
+};
+
 const KST_OFFSET = 9 * 60;
 
 /* ========= KST helpers ========= */
 function nowKST() {
   const d = new Date();
-  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-  return new Date(utc + KST_OFFSET * 60000);
+  const utc = d.getTime() + (d.getTimezoneOffset() * 60 * 1000);
+  return new Date(utc + (KST_OFFSET * 60 * 1000));
 }
 function isSatAfter2045() {
   const k = nowKST();
-  return (k.getDay() === 6 && (k.getHours() > 20 || (k.getHours() === 20 && k.getMinutes() >= 45)));
+  const isSaturday = k.getDay() === 6; // 6 = Saturday
+  const isAfterTime = k.getHours() * 60 + k.getMinutes() >= (20 * 60 + 45);
+  return isSaturday && isAfterTime;
 }
 function isMonAfter7() {
   const k = nowKST();
-  return (k.getDay() === 1 && k.getHours() >= 7);
+  const isMonday = k.getDay() === 1; // 1 = Monday
+  const isAfterTime = k.getHours() >= 7;
+  return isMonday && isAfterTime;
 }
 
 /* ========= L5 storage ========= */
@@ -35,16 +65,25 @@ const L5 = {
   get(key, def){ try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch(e){ return def; } },
   set(key, val){ localStorage.setItem(key, JSON.stringify(val)); },
 };
+const defaultStorage = {
+  [STORAGE_KEYS.STATUS]: {count:0, last_round:0, last_updated_at:null, phase1_runs:{round:0, runs:0}},
+  [STORAGE_KEYS.DRAWS]: [],
+  [STORAGE_KEYS.DRAWS_50]: [],
+  [STORAGE_KEYS.EXCLUDE_MASK]: [],
+  [STORAGE_KEYS.HOF]: [],
+  [STORAGE_KEYS.META]: { patch: VERSION, build: Date.now(), notes: '오락용, 확률 보장 없음.' },
+  [STORAGE_KEYS.ANALYSIS_DATA]: null,
+  [STORAGE_KEYS.SAVED_SETS]: [],
+  [STORAGE_KEYS.SAVED_ARCHIVED_ROUND]: 0,
+  [STORAGE_KEYS.SAVED_GROUP_SELECTED]: null,
+  [STORAGE_KEYS.LAST_RECO]: null,
+  [STORAGE_KEYS.SAT_PULLED_OK]: false,
+  [STORAGE_KEYS.WEEKLY_SIM_DONE]: false,
+  [STORAGE_KEYS.LAST_WEEKLY_RESET]: null,
+};
+Object.entries(defaultStorage).forEach(([key, value]) => { if (localStorage.getItem(key) === null) L5.set(key, value); });
 
-if (!L5.get('L5.status')) L5.set('L5.status', {count:0,last_round:0,last_updated_at:null, phase1_runs:{round:0,runs:0}});
-if (!L5.get('L5.draws')) L5.set('L5.draws', []);
-if (!L5.get('L5.draws50')) L5.set('L5.draws50', []);
-if (!L5.get('L5.saved_sets')) L5.set('L5.saved_sets', []);
-if (!L5.get('L5.exclude_mask')) L5.set('L5.exclude_mask', []);
-if (!L5.get('L5.hof')) L5.set('L5.hof', []);
-if (!L5.get('L5.meta')) L5.set('L5.meta', { patch: VERSION, build: Date.now(), notes: '오락용, 확률 보장 없음.' });
-
-/* ========= Routing/UI elements ========= */
+/* ========= Routing/UI el ========= */
 const header = document.getElementById('app-header');
 const headerTitle = document.getElementById('header-title');
 const homeBtn = document.getElementById('home-btn');
@@ -56,162 +95,11 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 
 patchLabel.textContent = `patch ${VERSION}`;
-homeBtn.addEventListener('click', ()=>nav('#home'));
+homeBtn.addEventListener('click', ()=>nav(ROUTES.HOME));
 window.addEventListener('hashchange', render);
 window.addEventListener('scroll', () => {
-  const route = location.hash || '#home';
-  if (route === '#home') { fabTop.classList.add('hidden'); return; }
-  if (window.scrollY > 250) fabTop.classList.remove('hidden'); else fabTop.classList.add('hidden');
-});
-fabTop.addEventListener('click', ()=>window.scrollTo({top:0,behavior:'smooth'}));
-
-/* ========= SW update signal → 버튼 노출 ========= */
-let swWaiting = false;
-window.addEventListener('sw-waiting', ()=>{ swWaiting = true; ensureUpdateBadge(); });
-
-/* ========= Loader ========= */
-function showLoader(text='처리 중...'){ loadingText.textContent=text; loadingOverlay.classList.remove('hidden'); }
-function hideLoader(){ loadingOverlay.classList.add('hidden'); }
-
-/* ========= Fetch helpers ========= */
-async function fetchJSON(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.json(); }
-async function fetchText(url){ const res=await fetch(url,{cache:'no-store'}); if(!res.ok) throw new Error('HTTP '+res.status); return await res.text(); }
-
-/* ========= Lotto fetch ========= */
-async function fetchRound(round){
-  const url = `https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=${round}`;
-  const j = await fetchJSON(url);
-  if (j.returnValue !== 'success') throw new Error('no data for round ' + round);
-  const main = [j.drwNo1,j.drwNo2,j.drwNo3,j.drwNo4,j.drwNo5,j.drwNo6].sort((a,b)=>a-b);
-  const bonus = j.bnusNo;
-  const p23 = await fetchPrize23(round).catch(()=>({rank2: null, rank3: null}));
-  return {
-    round:j.drwNo, date:j.drwNoDate,
-    main, bonus,
-    prize:{
-      rank1:{ amount:j.firstWinamnt, winners:j.firstPrzwnerCo },
-      rank2:p23?.rank2,
-      rank3:p23?.rank3
-    },
-    totSellamnt:j.totSellamnt ?? null
-  };
-}
-async function fetchPrize23(round){
-  const urls = [
-    `https://r.jina.ai/http://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`,
-    `https://r.jina.ai/https://www.dhlottery.co.kr/gameResult.do?method=byWin&drwNo=${round}`
-  ];
-  let text=null;
-  for (const u of urls){ try{ text = await fetchText(u); if (text) break; }catch(e){ /*noop*/ } }
-  if (!text) throw new Error('p23 fetch fail');
-  const clean = text.replace(/\s+/g,' ');
-  function parseOne(label){
-    let m = new RegExp(label+"[^0-9]*([0-9,]+)명[^0-9]*([0-9,]+)원").exec(clean);
-    if (!m) m = new RegExp(label+"[^0-9]*([0-9,]+)원[^0-9]*([0-9,]+)명").exec(clean);
-    if (!m) return null;
-    try {
-      const a = parseInt(m[2].replace(/,/g,'')); 
-      const w = parseInt(m[1].replace(/,/g,'')); 
-      return { amount:a, winners:w };
-    } catch(e) { return null; }
-  }
-  const rank2 = parseOne('2등');
-  const rank3 = parseOne('3등');
-  if (!rank2 || !rank3) throw new Error('p23 parse fail');
-  return { rank2, rank3 };
-}
-
-/* ========= Initial backfill ========= */
-async function initialBackfill(){
-  const status = L5.get('L5.status');
-  if (status.count > 0) return;
-  showLoader('최신 회차 정보 확인 중...');
-  let latest = 0;
-  try { latest = await fetchRound(2000).then(d=>d.round); } catch {}
-  if (!latest) { hideLoader(); toast('데이터 수집 실패'); return; }
-  const out = []; let cur = latest;
-  while (cur >= 1){
-    const tasks = [];
-    for (let i=0; i<CONFIG.CONCURRENT_FETCHES; i++){
-      const r = cur - i; if (r >= 1) tasks.push(fetchRound(r).catch(()=>null));
-    }
-    const arr = await Promise.all(tasks);
-    for (const x of arr) if (x) out.push(x);
-    cur -= CONFIG.CONCURRENT_FETCHES;
-    showLoader(`데이터 수집 중... (${out.length} / ${latest} 회차)`);
-    out.sort((a,b)=>a.round-b.round);
-    L5.set('L5.draws', out.slice());
-    L5.set('L5.draws50', out.slice(-50));
-    L5.set('L5.status', { count: out.length, last_round: out.at(-1)?.round || 0, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
-    await new Promise(r => setTimeout(r, 30));
-  }
-  hideLoader();
-}
-/* app.js — Lotto Lab Pro (Full overwrite)
- * 모든 시간: KST (UTC+9)
- */
-export const VERSION = 'patch_0.105';
-
-const CONFIG = {
-  STATS_WINDOW: 150,
-  PORTFOLIO_SIZE: 30,      // = 5게임 × 6묶음
-  GROUPS: 6,               // 묶음 수
-  GROUP_SIZE: 5,           // 묶음당 게임 수
-  MAX_SAVED_SETS: 6,       // 저장 카드 최대 개수
-  BACKTEST_WINDOW: 30,
-  CONCURRENT_FETCHES: 5
-};
-
-const KST_OFFSET = 9 * 60;
-
-/* ========= KST helpers ========= */
-function nowKST() {
-  const d = new Date();
-  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-  return new Date(utc + KST_OFFSET * 60000);
-}
-function isSatAfter2045() {
-  const k = nowKST();
-  return (k.getDay() === 6 && (k.getHours() > 20 || (k.getHours() === 20 && k.getMinutes() >= 45)));
-}
-function isMonAfter7() {
-  const k = nowKST();
-  return (k.getDay() === 1 && k.getHours() >= 7);
-}
-
-/* ========= L5 storage ========= */
-const L5 = {
-  get(key, def){ try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch(e){ return def; } },
-  set(key, val){ localStorage.setItem(key, JSON.stringify(val)); },
-};
-
-if (!L5.get('L5.status')) L5.set('L5.status', {count:0,last_round:0,last_updated_at:null, phase1_runs:{round:0,runs:0}});
-if (!L5.get('L5.draws')) L5.set('L5.draws', []);
-if (!L5.get('L5.draws50')) L5.set('L5.draws50', []);
-if (!L5.get('L5.saved_sets')) L5.set('L5.saved_sets', []);
-if (!L5.get('L5.exclude_mask')) L5.set('L5.exclude_mask', []);
-if (!L5.get('L5.hof')) L5.set('L5.hof', []);
-if (!L5.get('L5.meta')) L5.set('L5.meta', { patch: VERSION, build: Date.now(), notes: '오락용, 확률 보장 없음.' });
-if (!L5.get('L5.analysisData')) L5.set('L5.analysisData', null);
-if (L5.get('L5.sat_pulled_ok') === undefined) L5.set('L5.sat_pulled_ok', false);
-
-/* ========= Routing/UI elements ========= */
-const header = document.getElementById('app-header');
-const headerTitle = document.getElementById('header-title');
-const homeBtn = document.getElementById('home-btn');
-const view = document.getElementById('view');
-const fabTop = document.getElementById('fab-top');
-const patchLabel = document.getElementById('patch-label');
-const updateBtn = document.getElementById('update-btn');
-const loadingOverlay = document.getElementById('loading-overlay');
-const loadingText = document.getElementById('loading-text');
-
-patchLabel.textContent = `patch ${VERSION}`;
-homeBtn.addEventListener('click', ()=>nav('#home'));
-window.addEventListener('hashchange', render);
-window.addEventListener('scroll', () => {
-  const route = location.hash || '#home';
-  if (route === '#home') { fabTop.classList.add('hidden'); return; }
+  const route = location.hash || ROUTES.HOME;
+  if (route === ROUTES.HOME) { fabTop.classList.add('hidden'); return; }
   if (window.scrollY > 250) fabTop.classList.remove('hidden'); else fabTop.classList.add('hidden');
 });
 fabTop.addEventListener('click', ()=>window.scrollTo({top:0,behavior:'smooth'}));
@@ -272,8 +160,8 @@ async function fetchPrize23(round){
     if (!m) m = new RegExp(label+"[^0-9]*([0-9,]+)원[^0-9]*([0-9,]+)명").exec(clean);
     if (!m) return null;
     try {
-      const a = parseInt(m[2].replace(/,/g,'')); 
-      const w = parseInt(m[1].replace(/,/g,'')); 
+      const a = parseInt(m[2].replace(/,/g,'')); // amount
+      const w = parseInt(m[1].replace(/,/g,'')); // winners
       return { amount:a, winners:w };
     } catch(e) { return null; }
   }
@@ -292,7 +180,7 @@ async function fetchLatestRoundGuess(start=2000){
 
 /* ========= Initial backfill ========= */
 async function initialBackfill(){
-  const status = L5.get('L5.status');
+  const status = L5.get(STORAGE_KEYS.STATUS);
   if (status.count > 0) return;
   showLoader('최신 회차 정보 확인 중...');
   const latest = await fetchLatestRoundGuess(2000);
@@ -308,25 +196,56 @@ async function initialBackfill(){
     cur -= CONFIG.CONCURRENT_FETCHES;
     showLoader(`데이터 수집 중... (${out.length} / ${latest} 회차)`);
     out.sort((a,b)=>a.round-b.round);
-    L5.set('L5.draws', out.slice());
-    L5.set('L5.draws50', out.slice(-50));
-    L5.set('L5.status', { count: out.length, last_round: out.at(-1)?.round || 0, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
+    L5.set(STORAGE_KEYS.DRAWS, out.slice());
+    L5.set(STORAGE_KEYS.DRAWS_50, out.slice(-50));
+    L5.set(STORAGE_KEYS.STATUS, { count: out.length, last_round: out.at(-1)?.round || 0, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
     await new Promise(r => setTimeout(r, 30));
   }
   hideLoader();
 }
 
+/* ========= 서버(배포물) 데이터 가져오기 =========
+   - data/draws.json, data/latest.json 이 있으면 우선 채택
+   - 이미 로컬에 데이터 있어도 서버 최신이 더 크면 교체
+*/
+async function tryImportServerData(){
+  try{
+    const [draws, latest] = await Promise.all([
+      fetchJSON('./data/draws.json'),
+      fetchJSON('./data/latest.json')
+    ]);
+    if (!Array.isArray(draws) || !latest?.round) return false;
+
+    const localLast = L5.get(STORAGE_KEYS.STATUS)?.last_round || 0;
+    if (latest.round >= localLast){
+      L5.set(STORAGE_KEYS.DRAWS, draws.slice());
+      L5.set(STORAGE_KEYS.DRAWS_50, draws.slice(-50));
+      L5.set(STORAGE_KEYS.STATUS, {
+        count: draws.length,
+        last_round: latest.round,
+        last_updated_at: nowKST().toISOString(),
+        phase1_runs: {round:0,runs:0}
+      });
+      return true;
+    }
+    return false;
+  } catch(e){
+    // 서버 데이터 없음(초기 배포 직후 등)
+    return false;
+  }
+}
+
 /* ========= Polling (Sat 20:45+) ========= */
 async function tryFetchLatestOnce(){
-  const st = L5.get('L5.status');
+  const st = L5.get(STORAGE_KEYS.STATUS);
   if (!st.last_round) return false;
   let r = st.last_round + 1;
   let got=null;
   for (let i=0;i<10;i++){ try{ got = await fetchRound(r); break; } catch(e){ r++; } }
   if (!got) return false;
-  const prev=L5.get('L5.draws'); prev.push(got); prev.sort((a,b)=>a.round-b.round);
-  L5.set('L5.draws', prev); L5.set('L5.draws50', prev.slice(-50));
-  L5.set('L5.status', { count: prev.length, last_round: got.round, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
+  const prev=L5.get(STORAGE_KEYS.DRAWS); prev.push(got); prev.sort((a,b)=>a.round-b.round);
+  L5.set(STORAGE_KEYS.DRAWS, prev); L5.set(STORAGE_KEYS.DRAWS_50, prev.slice(-50));
+  L5.set(STORAGE_KEYS.STATUS, { count: prev.length, last_round: got.round, last_updated_at: nowKST().toISOString(), phase1_runs: {round:0,runs:0} });
   onNewDrawArrived(got);
   return true;
 }
@@ -371,20 +290,16 @@ function groupHotCold(draws, counts, mean, sd, hotZ=1.0, coldZ=-0.6){
   }
   return {hot,cold};
 }
-/* G5: "가장 최근 회차 트리거 기준"
-   직전 회차의 어떤 번호와도 겹치는 과거회차들의 다음회차에서 '한 번도 등장하지 않은' 숫자 집합 */
 function groupG5NeverFollowed(draws){
   if (draws.length<2) return new Set();
   const last = draws.at(-1);
   const ever = new Set();
-  for (let i=0;i<draws.length-1;i++){
-    const cur=draws[i].main, nxt=draws[i+1].main;
+  for (let i=0;i<draws.length-1;i++){ const cur=draws[i].main, nxt=draws[i+1].main;
     if (cur.some(x=> last.main.includes(x))) for (const y of nxt) ever.add(y);
   }
   const never=new Set(); for (let n=1;n<=45;n++) if (!ever.has(n)) never.add(n);
   return never;
 }
-// PRNG PCG64 approx
 class PCG64 {
   constructor(seed=0n){ this.state = seed||42n; this.inc=1442695040888963407n; }
   next(){ this.state = this.state * 6364136223846793005n + (this.inc|1n); let x = (this.state>>64n) ^ this.state; x = (x>>22n)&((1n<<64n)-1n); const rot=Number(this.state>>122n)&63; const res = Number(((x>>rot)|(x<<((-rot)&63))) & ((1n<<64n)-1n))>>>0; return res/2**32; }
@@ -400,9 +315,9 @@ function passesHard(set, analysis, draws, g1){
   if (set.filter(x=>g1.has(x)).length>2) return false;
   return true;
 }
-function sampleSet(rng, weights, gsets){
+function sampleSet(rng, weights, gsets, exclusions){
   const cand=[];
-  for (const [name,g] of Object.entries(gsets)) for (const n of g) cand.push({n, w:weights[name]||0.1});
+  for (const [name,g] of Object.entries(gsets)) for (const n of g) if (!exclusions.has(n)) cand.push({n, w:weights[name]||0.1});
   const total=cand.reduce((a,b)=>a+b.w,0);
   const set=new Set();
   while (set.size<6){
@@ -411,7 +326,7 @@ function sampleSet(rng, weights, gsets){
   }
   return Array.from(set).sort((a,b)=>a-b);
 }
-function generatePortfolio(draws, analysis, params){
+function generatePortfolio(draws, analysis, params, exclusionsOverride = null){
   const g1=groupG1(draws);
   const {hot:cHot, cold:cCold} = groupHotCold(draws, analysis.counts, analysis.mean, analysis.sd, params.hotZ, params.coldZ);
   const g5=groupG5NeverFollowed(draws);
@@ -419,15 +334,14 @@ function generatePortfolio(draws, analysis, params){
   const g4=new Set([...all].filter(n=>!g1.has(n)&&!cHot.has(n)&&!cCold.has(n)&&!g5.has(n)));
   const gsets={G1:g1,G2:cHot,G3:cCold,G4:g4,G5:g5};
 
-  const seedStr=`round:${L5.get('L5.status').last_round}|build:${L5.get('L5.meta').build}`;
+  const seedStr=`round:${L5.get(STORAGE_KEYS.STATUS).last_round}|build:${L5.get(STORAGE_KEYS.META).build}`;
   let seed=0n; for (const ch of seedStr) seed = (seed*131n + BigInt(ch.charCodeAt(0))) & ((1n<<128n)-1n);
   const rng=new PCG64(seed);
 
-  const exclusions=new Set(L5.get('L5.exclude_mask')||[]);
+  const exclusions=new Set(exclusionsOverride ?? L5.get(STORAGE_KEYS.EXCLUDE_MASK)||[]);
   const out=[]; let guard=0;
   while (out.length<CONFIG.PORTFOLIO_SIZE && guard<4000){
-    const s = sampleSet(rng, params.weights, gsets);
-    if (s.some(n=>exclusions.has(n))){ guard++; continue; }
+    const s = sampleSet(rng, params.weights, gsets, exclusions);
     if (!passesHard(s, analysis, draws, g1)){ guard++; continue; }
     if (out.some(x=> x.filter(n=>s.includes(n)).length>3)){ guard++; continue; }
     out.push(s);
@@ -444,10 +358,9 @@ function buildCandidates(){
   return list;
 }
 async function phase1IfNeeded(){
-  const draws = L5.get('L5.draws'); if (draws.length<10) return;
-  const st=L5.get('L5.status'); const p=st.phase1_runs||{round:0,runs:0};
+  const draws = L5.get(STORAGE_KEYS.DRAWS, []); if (draws.length<10) return;
+  const st=L5.get(STORAGE_KEYS.STATUS); const p=st.phase1_runs||{round:0,runs:0};
   if (p.round===st.last_round && p.runs>=3) return;
-
   const stats=computeStats150(draws);
   const cands=buildCandidates();
   const last30 = lastND(draws, CONFIG.BACKTEST_WINDOW);
@@ -467,40 +380,68 @@ async function phase1IfNeeded(){
   }
   scores.sort((a,b)=>b.total-a.total);
   const best=scores[0].cand;
-  L5.set('L5.analysisData', { ...stats, optimizedParameters:best, generatedAt: nowKST().toISOString() });
+  L5.set(STORAGE_KEYS.ANALYSIS_DATA, { ...stats, optimizedParameters:best, generatedAt: nowKST().toISOString() });
   st.phase1_runs = { round: st.last_round, runs: (p.round===st.last_round ? p.runs+1 : 1) };
-  L5.set('L5.status', st);
+  L5.set(STORAGE_KEYS.STATUS, st);
 }
 
 /* ========= Hooks ========= */
 function onNewDrawArrived(newDraw){
-  const saved=L5.get('L5.saved_sets');
-  const results=[];
-  for (const block of saved) for (const set of block.sets){ const inter=set.filter(x=>newDraw.main.includes(x)).length; const rank=inter===6?1:inter===5?2:inter===4?3:0; results.push({set,inter,rank}); }
-  const best=results.sort((a,b)=> b.rank-a.rank || b.inter-a.inter)[0];
-  if (best && best.rank>0){ const hof=L5.get('L5.hof'); hof.unshift({ round:newDraw.round, main:newDraw.main, bonus:newDraw.bonus, best:best.set, rank:best.rank, at:nowKST().toISOString() }); L5.set('L5.hof', hof.slice(0,200)); }
-  L5.set('L5.saved_archived_round', newDraw.round);
-  L5.set('L5.last_reco', null);
-  const st=L5.get('L5.status'); st.phase1_runs={round:0,runs:0}; L5.set('L5.status', st);
+  const saved = L5.get(STORAGE_KEYS.SAVED_SETS) || [];
+  const allWinners = [];
+
+  for (const block of saved) {
+    // 해당 회차에 저장된 번호만 검사
+    if (block.round === newDraw.round) {
+      for (const item of block.sets) { // item is {set, prob, excl}
+        const k = item.set.filter(x => newDraw.main.includes(x)).length;
+        const hasBonus = item.set.includes(newDraw.bonus);
+        const rank = (k === 6) ? 1 : (k === 5 && hasBonus) ? 2 : (k === 5) ? 3 : (k === 4) ? 4 : (k === 3) ? 5 : 0;
+        
+        if (rank > 0) {
+          allWinners.push({
+            set: item.set,
+            rank: rank,
+            excl: item.excl, // O/X 배지 정보 유지
+          });
+        }
+      }
+    }
+  }
+
+  // 당첨된 게임이 있으면 명예의 전당에 기록
+  if (allWinners.length > 0) {
+    allWinners.sort((a, b) => a.rank - b.rank); // 등수 오름차순 정렬
+    const hof = L5.get(STORAGE_KEYS.HOF) || [];
+    hof.unshift({ round: newDraw.round, main: newDraw.main, bonus: newDraw.bonus, winners: allWinners, at: nowKST().toISOString() });
+    L5.set(STORAGE_KEYS.HOF, hof.slice(0, 200));
+  }
+
+  L5.set(STORAGE_KEYS.SAVED_ARCHIVED_ROUND, newDraw.round);
+  L5.set(STORAGE_KEYS.LAST_RECO, null);
+  const st=L5.get(STORAGE_KEYS.STATUS); st.phase1_runs={round:0,runs:0}; L5.set(STORAGE_KEYS.STATUS, st);
   ensureUpdateBadge(); // 새 데이터 왔으니 배지 재계산
 }
 
 /* ========= Screens ========= */
 function render(){
-  const route=location.hash||'#home';
-  header.classList.toggle('hidden', route==='#home');
-  headerTitle.textContent = ({'#winning':'당첨번호','#saved':'저장번호','#recommend':'추천','#hall':'명예의전당','#analysis':'분석'}[route]||'');
+  const route=location.hash||ROUTES.HOME;
+  const isHome = route === ROUTES.HOME;
+  document.documentElement.classList.toggle('home-fixed', isHome);
+  document.body.classList.toggle('home-fixed', isHome);
+  header.classList.toggle('hidden', route===ROUTES.HOME);
+  headerTitle.textContent = ({[ROUTES.WINNING]:'당첨번호',[ROUTES.SAVED]:'저장번호',[ROUTES.RECOMMEND]:'추천',[ROUTES.HALL]:'명예의전당',[ROUTES.ANALYSIS]:'분석'}[route]||'');
   view.innerHTML='';
-  if (route==='#home') renderHome();
-  else if (route==='#winning') renderWinning();
-  else if (route==='#saved') renderSaved();
-  else if (route==='#recommend') renderRecommend();
-  else if (route==='#hall') renderHall();
-  else if (route==='#analysis') renderAnalysis();
+  if (route===ROUTES.HOME) renderHome();
+  else if (route===ROUTES.WINNING) renderWinning();
+  else if (route===ROUTES.SAVED) renderSaved();
+  else if (route===ROUTES.RECOMMEND) renderRecommend();
+  else if (route===ROUTES.HALL) renderHall();
+  else if (route===ROUTES.ANALYSIS) renderAnalysis();
 }
 
 function cardLatestDraw(){
-  const draws=L5.get('L5.draws'); const last=draws.at(-1);
+  const draws=L5.get(STORAGE_KEYS.DRAWS, []); const last=draws.at(-1);
   const box=document.createElement('div'); box.className='card';
   if (!last){ box.appendChild(p('수집된 당첨번호가 없습니다. 수동으로 데이터를 수집해주세요.')); return box; }
   const top=document.createElement('div'); top.textContent=`${last.round}회차  ·  ${last.date}`;
@@ -519,15 +460,39 @@ function renderHome(){
   view.appendChild(cardLatestDraw());
   const btns=document.createElement('div'); btns.className='home-buttons';
   const mk=(t,h)=>{ const b=document.createElement('button'); b.className='btn big-button'; b.textContent=t; b.onclick=()=>nav(h); return b; };
-  const savedBtn = mk('저장번호','#saved');
-  const hof=L5.get('L5.hof'); if (hof[0]?.rank===1){ Object.assign(savedBtn.style,{ background:'#E53935', color:'#FFD54F', border:'3px solid #2E2A26', padding:'28px 18px' }); savedBtn.textContent='👑 1등당첨'; }
-  btns.append(mk('당첨번호','#winning'), savedBtn, mk('추천','#recommend'), mk('명예의전당','#hall'), mk('분석','#analysis'));
+
+    // '저장번호' 버튼 동적 생성 로직
+    const savedBtn = mk('저장번호', ROUTES.SAVED);
+    const lastDraw = L5.get(STORAGE_KEYS.DRAWS, []).at(-1);
+    const hof = L5.get(STORAGE_KEYS.HOF) || [];
+
+    // 조건: 1. 명예의 전당에 기록이 있고, 2. 그 기록이 최신 회차에 대한 것이며, 3. 아직 월요일 7시가 지나지 않았을 때
+    if (hof.length > 0 && lastDraw && hof[0].round === lastDraw.round && !isMonAfter7()) {
+        const winners = hof[0].winners || [];
+        if (winners.length > 0) {
+            const bestRank = Math.min(...winners.map(w => w.rank));
+            if (bestRank >= 1 && bestRank <= 5) {
+                Object.assign(savedBtn.style, {
+                    background: '#E53935',
+                    color: '#FFD54F',
+                    border: '3px solid #2E2A26',
+                    padding: '28px 18px',
+                    fontWeight: 'bold',
+                });
+                // 요청에 따라 등수와 관계없이 항상 '1등당첨'으로 고정
+                savedBtn.innerHTML = '👑 1등당첨';
+            }
+        }
+    }
+
+  btns.append(mk('당첨번호',ROUTES.WINNING), savedBtn, mk('추천',ROUTES.RECOMMEND), mk('명예의전당',ROUTES.HALL), mk('분석',ROUTES.ANALYSIS));
   view.appendChild(btns);
 }
+
 function renderWinning(){
   view.appendChild(cardLatestDraw());
   const b=document.createElement('button'); b.className='btn btn-primary'; b.textContent='QR 스캔/업로드'; b.onclick=showQRModal; view.appendChild(b);
-  const draws=L5.get('L5.draws'); const recent=draws.slice(0,-1).slice(-30).reverse();
+  const draws=L5.get(STORAGE_KEYS.DRAWS, []); const recent=draws.slice(0,-1).slice(-30).reverse();
   for (const d of recent){
     const c=document.createElement('div'); c.className='card';
     const top=document.createElement('div'); top.textContent=`${d.round}회차  ·  ${d.date}`;
@@ -545,131 +510,327 @@ function showQRModal(){
   modal.append(row); bd.appendChild(modal); bd.addEventListener('click',e=>{ if (e.target===bd) bd.remove(); }); document.body.appendChild(bd);
 }
 
-function renderSaved(){
-  const draws=L5.get('L5.draws'); const last=draws.at(-1);
-  if (last) view.appendChild(cardLatestDraw());
-  const saved=L5.get('L5.saved_sets');
-  if (!saved.length){ view.appendChild(card(p('추천번호가 없습니다.'))); return; }
-  const archivedRound=L5.get('L5.saved_archived_round')||0;
+/* ========= renderSaved helpers (refactored for readability) ========= */
+function createSavedGameItem(item, lastDraw, isArchived, engineOk) {
+  const row = document.createElement('div');
+  row.className = 'game-row';
 
-  saved.forEach((block,bi)=>{
-    const wrap=document.createElement('div'); wrap.className='card';
-    const title=document.createElement('div'); title.textContent=`${block.round}회차 예상번호 | D-7`; wrap.appendChild(title);
-    const engineOk= !!L5.get('L5.analysisData') && (L5.get('L5.draws').length===L5.get('L5.status').count);
-    wrap.appendChild(makeWarningCard(engineOk));
+  // 1) 경고카드
+  row.appendChild(makeWarningCard(engineOk));
 
-    // 30세트 → 6묶음(각 5게임)
-    const groups = groupInto(block.sets, CONFIG.GROUP_SIZE); // 6개 기대
-    groups.forEach((sets, gi)=>{
-      const gCard=document.createElement('div'); gCard.className='card';
-      const gTitle=document.createElement('div'); gTitle.textContent=`묶음 ${gi+1}`;
-      const grid=document.createElement('div'); grid.className='grid grid-5';
+  // 2) 배지 O/X
+  const badge = document.createElement('div');
+  badge.textContent = (item.excl === false) ? 'O' : (item.excl === true ? 'X' : '');
+  badge.className = 'game-badge';
+  row.appendChild(badge);
 
-      sets.forEach(set=>{
-        const box=document.createElement('div'); box.className='card';
-        const chips=document.createElement('div'); chips.className='chips';
-        if (archivedRound===last?.round){ for (const n of set) chips.appendChild(last.main.includes(n)?chipWinning(n):chipNumber(n)); }
-        else { for (const n of set) chips.appendChild(chipNumber(n)); }
-        box.appendChild(chips);
-        const res=document.createElement('div');
-        if (archivedRound===last?.round){ const k=set.filter(x=>last.main.includes(x)).length; res.textContent = (k===6?'치킨':k===5?'2등':k===4?'3등':'낙첨'); }
-        else res.textContent='미추첨';
-        box.appendChild(res);
-        grid.appendChild(box);
-      });
-      gCard.append(gTitle, grid);
-      wrap.appendChild(gCard);
-    });
+  // 3) 칩
+  const chips = document.createElement('div');
+  chips.className = 'chips';
+  if (isArchived) {
+    for (const n of item.set) {
+      if (lastDraw.main.includes(n)) chips.appendChild(chipWinning(n));
+      else if (item.set.includes(lastDraw.bonus) && n === lastDraw.bonus) chips.appendChild(chipBonus(n));
+      else chips.appendChild(chipNumber(n));
+    }
+  } else {
+    for (const n of item.set) chips.appendChild(chipNumber(n));
+  }
+  row.appendChild(chips);
 
-    const del=document.createElement('button'); del.className='btn btn-danger'; del.textContent='이 카드 삭제';
-    if (archivedRound===last?.round) del.style.display='none';
-    del.onclick=()=>{ const arr=L5.get('L5.saved_sets'); arr.splice(bi,1); L5.set('L5.saved_sets',arr); render(); };
-    wrap.appendChild(del);
-    view.appendChild(wrap);
+  // 4) 상태텍스트 (등수/미추첨)
+  const statusText = document.createElement('div');
+  statusText.className = 'game-status';
+  if (isArchived) {
+    const k = item.set.filter(x => lastDraw.main.includes(x)).length;
+    const hasBonus = item.set.includes(lastDraw.bonus);
+    const rank = (k === 6) ? 1 : (k === 5 && hasBonus) ? 2 : (k === 5) ? 3 : (k === 4) ? 4 : (k === 3) ? 5 : 0;
+    statusText.textContent = rank ? `${rank}등` : '낙첨';
+  } else {
+    statusText.textContent = '미추첨';
+  }
+  row.appendChild(statusText);
+
+  return row;
+}
+
+function createSavedGroup(sets, groupIndex, blockIndex, lastDraw, isArchived, selectedGroupKey, engineOk) {
+  const groupKey = `${blockIndex}:${groupIndex}`;
+  const gCard = document.createElement('div');
+  gCard.className = 'card';
+  if (selectedGroupKey === groupKey) gCard.classList.add('group-selected');
+
+  const gTitle = document.createElement('div');
+  gTitle.textContent = `묶음 ${groupIndex + 1}`;
+  gTitle.style.cursor = 'pointer';
+  gTitle.onclick = () => {
+    const newKey = (selectedGroupKey === groupKey ? null : groupKey);
+    L5.set(STORAGE_KEYS.SAVED_GROUP_SELECTED, newKey);
+    render();
+  };
+  gCard.appendChild(gTitle);
+
+  const grid = document.createElement('div');
+  grid.style.display = 'flex';
+  grid.style.flexDirection = 'column';
+  grid.style.gap = '8px';
+  sets.forEach(item => {
+    grid.appendChild(createSavedGameItem(item, lastDraw, isArchived, engineOk));
+  });
+  gCard.appendChild(grid);
+
+  return gCard;
+}
+
+function createSavedBlock(block, blockIndex, lastDraw, isArchived) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card';
+
+  const title = document.createElement('div');
+  title.textContent = `${block.round}회차 예상번호 | D-7`;
+  wrap.appendChild(title);
+
+  const items = (block.sets || []).map(s => (Array.isArray(s) ? { set: s, prob: null, excl: null } : s));
+  const groups = groupInto(items, CONFIG.GROUP_SIZE);
+  const selectedGroupKey = L5.get(STORAGE_KEYS.SAVED_GROUP_SELECTED, null);
+
+  groups.forEach((sets, gi) => {
+    wrap.appendChild(createSavedGroup(sets, gi, blockIndex, lastDraw, isArchived, selectedGroupKey, engineOk));
+    const engineOk = !!L5.get(STORAGE_KEYS.ANALYSIS_DATA) && (L5.get(STORAGE_KEYS.DRAWS, []).length === L5.get(STORAGE_KEYS.STATUS).count);
+  });
+
+  const del = document.createElement('button');
+  del.className = 'btn btn-danger';
+  del.textContent = '카드 삭제';
+  if (isArchived) {
+    del.disabled = true;
+    del.title = '추첨이 끝난 카드는 삭제할 수 없습니다.';
+  } else {
+    del.onclick = () => {
+      const arr = L5.get(STORAGE_KEYS.SAVED_SETS) || [];
+      arr.splice(blockIndex, 1);
+      L5.set(STORAGE_KEYS.SAVED_SETS, arr);
+      render();
+    };
+  }
+  wrap.appendChild(del);
+
+  return wrap;
+}
+
+function renderSaved() {
+  const draws = L5.get(STORAGE_KEYS.DRAWS, []);
+  const lastDraw = draws.at(-1);
+  if (lastDraw) view.appendChild(cardLatestDraw());
+
+  const saved = L5.get(STORAGE_KEYS.SAVED_SETS) || [];
+  if (!saved.length) {
+    view.appendChild(card(p('추천번호가 없습니다.')));
+    return;
+  }
+
+  const archivedRound = L5.get(STORAGE_KEYS.SAVED_ARCHIVED_ROUND, 0);
+  const isArchived = (archivedRound === lastDraw?.round);
+
+  saved.forEach((block, bi) => {
+    view.appendChild(createSavedBlock(block, bi, lastDraw, isArchived));
   });
 }
 
-function renderRecommend(){
-  const analysis=L5.get('L5.analysisData'); const draws=L5.get('L5.draws');
-  const engineOk = !!analysis && (draws.length===L5.get('L5.status').count);
-  view.appendChild(makeWarningCard(engineOk));
 
-  // 제외수 선택 그리드
+async function generateAndSavePortfolio() {
+    if (!L5.get(STORAGE_KEYS.ANALYSIS_DATA)) await phase1IfNeeded();
+    const draws = L5.get(STORAGE_KEYS.DRAWS, []);
+    const analysis = L5.get(STORAGE_KEYS.ANALYSIS_DATA);
+
+    // G1 보호: 제외수에서 제거
+    const g1=groupG1(draws); 
+    const m=new Set(L5.get(STORAGE_KEYS.EXCLUDE_MASK)); 
+    for (const n of g1) if (m.has(n)) m.delete(n); 
+    L5.set(STORAGE_KEYS.EXCLUDE_MASK,Array.from(m));
+
+    // 30게임 = 10(O) + 20(X)
+    const params = analysis.optimizedParameters;
+
+    // (A) 제외수 미적용 10게임
+    const pfO = generatePortfolio(draws, analysis, params, []).slice(0,10).map(x=>({set:x.set, prob:x.prob, excl:false}));
+
+    // (B) 제외수 적용 20게임
+    const pfX = generatePortfolio(draws, analysis, params, Array.from(m)).slice(0,20).map(x=>({set:x.set, prob:x.prob, excl:true}));
+
+    const pfAll = [...pfO, ...pfX]; // 총 30
+
+    // 저장(묶음 형태 5게임*6묶음)
+    const block={ 
+      round: L5.get(STORAGE_KEYS.STATUS).last_round + 1,
+      sets: pfAll  // 배열 원소를 객체로 저장 {set, prob, excl}
+    };
+    const saved=L5.get(STORAGE_KEYS.SAVED_SETS) || []; 
+    saved.unshift(block); 
+    L5.set(STORAGE_KEYS.SAVED_SETS, saved.slice(0, CONFIG.MAX_SAVED_SETS));
+
+    // 결과 렌더 (각 게임카드 내부: 경고카드 → 배지(O/X) → 칩 → 확률)
+    L5.set(STORAGE_KEYS.LAST_RECO, pfAll);
+    return pfAll;
+}
+
+function renderRecommendationResults(resultBox, portfolio, engineOk) {
+    resultBox.innerHTML='';
+    const round = L5.get(STORAGE_KEYS.STATUS).last_round + 1;
+    const groups = groupInto(portfolio, 5); // 6묶음
+    groups.forEach((items, gi)=>{
+      const gCard=document.createElement('div'); gCard.className='card';
+      const gTitle=document.createElement('div'); gTitle.textContent=`${round}회차 추천 | 묶음 ${gi+1}`;
+      const gridR=document.createElement('div');
+      gridR.style.display = 'flex';
+      gridR.style.flexDirection = 'column';
+      gridR.style.gap = '8px';
+
+      items.forEach(item=>{
+        const row = document.createElement('div'); row.className = 'game-row';
+        row.appendChild(makeWarningCard(engineOk));
+
+        const badge=document.createElement('div');
+        badge.className = 'game-badge';
+        badge.textContent = (item.excl === false) ? 'O' : (item.excl === true ? 'X' : '');
+        row.appendChild(badge);
+
+        const chips=document.createElement('div'); chips.className='chips';
+        item.set.forEach(n=>chips.appendChild(chipNumber(n)));
+        row.appendChild(chips);
+
+        const prob=document.createElement('div'); prob.textContent=item.prob+'%';
+        prob.className = 'game-prob';
+        row.appendChild(prob);
+
+        gridR.appendChild(row);
+      });
+
+      gCard.append(gTitle, gridR); 
+      resultBox.appendChild(gCard);
+    });
+}
+
+async function handleRunRecommendation(run, resetBtn, resultBox) {
+  run.disabled = true;
+  resetBtn.disabled = true;
+  showLoader('최적 파라미터로 번호 생성 중...');
+  await new Promise(r => setTimeout(r, 30));
+
+  try {
+    const portfolio = await generateAndSavePortfolio();
+    const engineOk = !!L5.get(STORAGE_KEYS.ANALYSIS_DATA);
+    renderRecommendationResults(resultBox, portfolio, engineOk);
+  } catch (error) {
+    console.error("추천 생성 실패:", error);
+    toast("추천 번호 생성에 실패했습니다.");
+  } finally {
+    run.disabled = false;
+    resetBtn.disabled = false;
+    hideLoader();
+  }
+}
+
+function renderRecommend(){
+  // 제외수 그리드
   const grid=document.createElement('div'); grid.className='grid grid-10';
-  const mask=new Set(L5.get('L5.exclude_mask'));
+  const mask=new Set(L5.get(STORAGE_KEYS.EXCLUDE_MASK, []));
   for (let n=1;n<=45;n++){
     const node = mask.has(n) ? chipNumber(n,true) : chipWinning(n);
-    node.onclick=()=>{ const m=new Set(L5.get('L5.exclude_mask')); if (m.has(n)) m.delete(n); else m.add(n); L5.set('L5.exclude_mask',Array.from(m)); renderRecommend(); };
+    node.onclick=()=>{ 
+      const m=new Set(L5.get(STORAGE_KEYS.EXCLUDE_MASK, [])); 
+      if (m.has(n)) m.delete(n); else m.add(n); 
+      L5.set(STORAGE_KEYS.EXCLUDE_MASK,Array.from(m)); 
+      renderRecommend(); 
+    };
     grid.appendChild(node);
   }
   view.appendChild(card([h2('제외수 선택'),grid]));
 
-  // 버튼 2개: 제외수 리셋 / 추천 실행
+  // 버튼 2개
   const btnRow=document.createElement('div'); btnRow.style.display='flex'; btnRow.style.gap='8px';
   const resetBtn=document.createElement('button'); resetBtn.className='btn'; resetBtn.textContent='제외수 리셋';
-  resetBtn.onclick=()=>{ L5.set('L5.exclude_mask', []); renderRecommend(); };
+  resetBtn.onclick=()=>{ L5.set(STORAGE_KEYS.EXCLUDE_MASK, []); renderRecommend(); };
   const run=document.createElement('button'); run.className='btn btn-primary'; run.textContent='추천 실행';
   btnRow.append(resetBtn, run);
   view.appendChild(btnRow);
 
+  // 토요일 최신 수집 이후 ~ 월요일 07:00까지 버튼 잠금
+  const satLocked = !!L5.get(STORAGE_KEYS.SAT_PULLED_OK) && !isMonAfter7();
+  if (satLocked){ 
+    run.disabled=true; 
+    resetBtn.disabled=true; 
+  }
+
+  // 결과 출력 영역
   const resultBox=document.createElement('div'); view.appendChild(resultBox);
-
-  run.onclick=async()=>{
-    run.disabled=true; resetBtn.disabled=true;
-    showLoader('최적 파라미터로 번호 생성 중...');
-    // UX: 2초 로딩 애니메이션 유지
-    await new Promise(r => setTimeout(r, 2000));
-
-    if (!L5.get('L5.analysisData')) await phase1IfNeeded();
-    const draws=L5.get('L5.draws'); const analysis=L5.get('L5.analysisData');
-    // G1 보호: 제외수에서 제거
-    const g1=groupG1(draws); const m=new Set(L5.get('L5.exclude_mask')); for (const n of g1) if (m.has(n)) m.delete(n); L5.set('L5.exclude_mask',Array.from(m));
-
-    const pf = generatePortfolio(draws, analysis, analysis.optimizedParameters);
-
-    // 저장: 30세트 묶음 형태
-    const block={ round: L5.get('L5.status').last_round+1, sets: pf.map(x=>x.set) };
-    const saved=L5.get('L5.saved_sets'); saved.unshift(block); L5.set('L5.saved_sets', saved.slice(0, CONFIG.MAX_SAVED_SETS));
-
-    // 결과 렌더: 6묶음 × 5게임
-    resultBox.innerHTML='';
-    const groups = groupInto(pf, CONFIG.GROUP_SIZE); // 6개 기대
-    groups.forEach((items, gi)=>{
-      const gCard=document.createElement('div'); gCard.className='card';
-      const gTitle=document.createElement('div'); gTitle.textContent=`묶음 ${gi+1}`;
-      const gridR=document.createElement('div'); gridR.className='grid grid-5';
-      items.forEach(item=>{
-        const c=document.createElement('div'); c.className='card';
-        const chips=document.createElement('div'); chips.className='chips';
-        item.set.forEach(n=>chips.appendChild(chipNumber(n)));
-        const prob=document.createElement('div'); prob.textContent=item.prob+'%';
-        c.append(chips,prob); gridR.appendChild(c);
-      });
-      gCard.append(gTitle, gridR); resultBox.appendChild(gCard);
-    });
-
-    run.disabled=false; resetBtn.disabled=false;
-    hideLoader();
-    L5.set('L5.last_reco', pf);
-  };
+  run.onclick = () => handleRunRecommendation(run, resetBtn, resultBox);
 }
 
 function renderHall(){
-  const list=L5.get('L5.hof'); if (!list.length){ view.appendChild(card(p('기록이 없습니다.'))); return; }
+  const list=L5.get(STORAGE_KEYS.HOF) || []; 
+  if (!list.length){ 
+    view.appendChild(card(p('기록이 없습니다.')));
+    return; 
+  }
+
   for (const h of list){
     const c=document.createElement('div'); c.className='card';
-    const top=document.createElement('div'); top.textContent=`${h.round}회차`;
-    const mid=document.createElement('div'); mid.className='chips'; h.main.forEach(n=>mid.appendChild(chipWinning(n))); mid.appendChild(chipBonus(h.bonus));
-    const bot=document.createElement('div'); bot.className='chips';
-    const set=h.best||[]; const has2nd=h.rank===2;
-    for (const n of set) bot.appendChild(h.main.includes(n)?chipWinning(n) : (has2nd && n===h.bonus)?chipBonus(n) : chipNumber(n));
-    const rank=document.createElement('div'); rank.textContent=(h.rank===1?'1등':h.rank===2?'2등':h.rank===3?'3등':'낙첨');
-    c.append(top,mid,bot,rank); view.appendChild(c);
+
+    // 상단: 당첨번호 카드 (회차 텍스트 없이 칩만)
+    const mid=document.createElement('div'); mid.className='chips';
+    h.main.forEach(n=>mid.appendChild(chipWinning(n))); 
+    mid.appendChild(chipBonus(h.bonus));
+    c.appendChild(mid);
+
+    // 아래: 당첨된 게임만 (한 줄: 칩 + 상태텍스트 + 배지)
+    if (Array.isArray(h.winners)){
+      h.winners.forEach(w=>{
+        const row=document.createElement('div'); row.className = 'game-row';
+
+        // 배지(O/X) - 설계도 순서
+        const badge=document.createElement('div'); badge.className = 'game-badge';
+        badge.textContent = (w.excl===false) ? 'O' : (w.excl===true ? 'X' : '');
+        row.appendChild(badge);
+
+        // 칩
+        const chips=document.createElement('div'); chips.className='chips small';
+        const set = Array.isArray(w.set) ? w.set : w.set?.set || [];
+        for (const n of set){
+          if (h.main.includes(n)) chips.appendChild(chipWinning(n));
+          else if (w.rank===2 && n===h.bonus) chips.appendChild(chipBonus(n));
+          else chips.appendChild(chipNumber(n));
+        }
+        row.appendChild(chips);
+
+        // 상태텍스트
+        const st=document.createElement('div'); st.className = 'game-status'; st.textContent = `${w.rank}등`;
+        row.appendChild(st);
+
+        c.appendChild(row);
+      });
+    } else {
+      // 백워드 호환: winners 배열이 없는 예전 항목 → best만 표시
+      const row=document.createElement('div'); row.className = 'game-row';
+      const badge=document.createElement('div'); badge.className = 'game-badge';
+      badge.textContent = (h.best && h.best.excl===false) ? 'O' : (h.best && h.best.excl===true ? 'X' : '');
+      row.appendChild(badge);
+      const chips=document.createElement('div'); chips.className='chips small';
+      const set = Array.isArray(h.best) ? h.best : h.best?.set || [];
+      for (const n of set) chips.appendChild(h.main.includes(n) ? chipWinning(n) : (h.rank===2 && n===h.bonus ? chipBonus(n) : chipNumber(n)));
+      row.appendChild(chips);
+      const st=document.createElement('div'); st.className = 'game-status'; st.textContent = `${h.rank}등`;
+      row.appendChild(st);
+      c.appendChild(row);
+    }
+
+    view.appendChild(c);
   }
 }
 
+
 function renderAnalysis(){
-  const analysis=L5.get('L5.analysisData');
+  const analysis=L5.get(STORAGE_KEYS.ANALYSIS_DATA);
   const c1=card([h2('이번주 엔진 분석 현황')]);
   if (analysis){
     c1.append(row('sumRange', analysis.sumRange.join(' ~ ')));
@@ -680,29 +841,36 @@ function renderAnalysis(){
   view.appendChild(c1);
 
   const c2=card([h2('G1~G5 조정 시뮬레이션 당첨횟수'), p('백테스트 결과는 Phase 1 수행 시 계산됩니다.')]);
-  c2.classList.add('multiline'); // 분석 카드 줄바꿈 허용
+  c2.classList.add('multiline'); // 카드 내 줄바꿈 허용 (분석 카드만)
   view.appendChild(c2);
 
-  const draws=L5.get('L5.draws');
-  const c3=card([h2('당첨번호 수집 기록'), row('총 이력 수', String(draws.length)), row('최신 회차', String(L5.get('L5.status').last_round)) ]);
+  const draws=L5.get(STORAGE_KEYS.DRAWS, []);
+  const c3=card([h2('당첨번호 수집 기록'), row('총 이력 수', String(draws.length)), row('최신 회차', String(L5.get(STORAGE_KEYS.STATUS).last_round)) ]);
   c3.classList.add('multiline');
   view.appendChild(c3);
 
   const c4=card([h2('에러/충돌 내용'), p('현재 없음')]); c4.classList.add('multiline'); view.appendChild(c4);
-  const c5=card([h2('패치 정보'), row('패치', L5.get('L5.meta').patch), row('빌드', String(new Date(L5.get('L5.meta').build).toLocaleString('ko-KR')) )]); c5.classList.add('multiline'); view.appendChild(c5);
+  const c5=card([h2('패치 정보'), row('패치', L5.get(STORAGE_KEYS.META).patch), row('빌드', String(new Date(L5.get(STORAGE_KEYS.META).build).toLocaleString('ko-KR')) )]); c5.classList.add('multiline'); view.appendChild(c5);
 }
 
 /* ========= Update badge logic ========= */
 function dataIncomplete(){
-  const draws=L5.get('L5.draws'); const last=draws.at(-1);
-  if (!last) return true;
-  if (!last.prize?.rank2 || !last.prize?.rank3) return true; // 2,3등 정보 누락
+  const st = L5.get(STORAGE_KEYS.STATUS)||{};
+  const draws=L5.get(STORAGE_KEYS.DRAWS, [])||[]; 
+  const last=draws.at(-1);
+  if (!st.count || !last) return true;
+  // 2,3등 정보 미존재
+  if (!last.prize?.rank2 || !last.prize?.rank3) return true;
+  // 분석데이터 없음
+  if (!L5.get(STORAGE_KEYS.ANALYSIS_DATA)) return true;
   return false;
 }
+
 function ensureUpdateBadge(){
-  const should = swWaiting || dataIncomplete() || (isSatAfter2045() && !L5.get('L5.sat_pulled_ok'));
+  const should = swWaiting || dataIncomplete() || (isSatAfter2045() && !L5.get(STORAGE_KEYS.SAT_PULLED_OK));
   updateBtn.classList.toggle('hidden', !should);
 }
+
 
 /* ========= Toast ========= */
 let toastTimer=null;
@@ -710,36 +878,63 @@ function toast(msg){ const ex=document.getElementById('toast'); ex?.remove(); co
 
 /* ========= Boot ========= */
 async function boot(){
+  // 월요일 07:00 이후, 주간 데이터 리셋 (저장번호, 추천결과 등)
+  if (isMonAfter7()) {
+      const k = nowKST();
+      // ISO 8601 주차 번호 계산 헬퍼
+      const getWeekNumber = (d) => {
+          d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+          d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+          const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+          const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+          return `${d.getUTCFullYear()}-W${weekNo}`;
+      }
+      const currentWeekId = getWeekNumber(k);
+      const lastResetWeekId = L5.get(STORAGE_KEYS.LAST_WEEKLY_RESET);
+
+      if (currentWeekId !== lastResetWeekId) {
+          L5.set(STORAGE_KEYS.SAVED_SETS, []);
+          L5.set(STORAGE_KEYS.SAVED_GROUP_SELECTED, null);
+          L5.set(STORAGE_KEYS.LAST_RECO, null);
+          L5.set(STORAGE_KEYS.LAST_WEEKLY_RESET, currentWeekId);
+          toast('새로운 주가 시작되어 데이터가 초기화되었습니다.');
+      }
+  }
   render();
 
-  // 월요일 07:00 이후 1회 자동 정리(중복 방지)
-  if (isMonAfter7()){
-    const today = nowKST().toISOString().slice(0,10);
-    if (L5.get('L5.saved_cleared_at') !== today){
-      L5.set('L5.saved_sets', []);
-      L5.set('L5.saved_cleared_at', today);
-    }
-  }
+  // 0) 배포물(data/*.json) 우선 반영 시도
+  showLoader('데이터 초기화 중...');
+  const imported = await tryImportServerData();
+  hideLoader();
 
-  // 최초 전체백필
-  if (L5.get('L5.status').count === 0) {
+  // 1) 최초 로컬이 비었고(또는 서버가 더 최신이어도) 필요한 경우에만 전체 백필
+  if (L5.get(STORAGE_KEYS.STATUS).count === 0) {
     await initialBackfill().catch(console.warn);
-    showLoader('엔진 최적화 중 (Phase 1)...');
-    await phase1IfNeeded().catch(console.warn);
-    hideLoader();
   }
 
-  // 토요일 20:45 이후 접속: 홈 전 로딩 수집
+  // 2) 토요일 20:45 이후 접속: 홈 전 로딩 수집(최신+1~ 2/3등 정보 포함)
   if (isSatAfter2045()){
     showLoader('최신 회차 수집 중...');
     let ok = await tryFetchLatestOnce();
     if (!ok){ await new Promise(r=>setTimeout(r, 800)); ok = await tryFetchLatestOnce(); }
-    if (ok){ L5.set('L5.sat_pulled_ok', true); await phase1IfNeeded().catch(console.warn); hideLoader(); }
-    else { L5.set('L5.sat_pulled_ok', false); hideLoader(); }
+    if (ok){ L5.set(STORAGE_KEYS.SAT_PULLED_OK, true); await phase1IfNeeded().catch(console.warn); hideLoader(); }
+    else { L5.set(STORAGE_KEYS.SAT_PULLED_OK, false); hideLoader(); }
+  }
+// 월요일 07:00 이후 주간 시뮬레이션(3회)
+  if (isMonAfter7() && !L5.get(STORAGE_KEYS.WEEKLY_SIM_DONE, false)){
+    showLoader('엔진 시뮬레이션 중 (1/3)…');
+    await phase1IfNeeded(); // 1회
+    showLoader('엔진 시뮬레이션 중 (2/3)…');
+    await phase1IfNeeded(); // 2회
+    showLoader('엔진 시뮬레이션 중 (3/3)…');
+    await phase1IfNeeded(); // 3회
+    L5.set(STORAGE_KEYS.WEEKLY_SIM_DONE, true);
+    hideLoader();
   }
 
   ensureUpdateBadge();
-  // Phase1 최신화는 백그라운드 허용
+
+  // 3) Phase1 최신화는 백그라운드
   phase1IfNeeded().catch(console.warn);
 }
 document.addEventListener('DOMContentLoaded', boot);
@@ -748,22 +943,28 @@ document.addEventListener('DOMContentLoaded', boot);
 updateBtn.addEventListener('click', async ()=>{
   showLoader('업데이트 적용 중...');
   try{
-    // 1) SW 즉시 활성화
+    // 1) SW 즉시 활성화 요청
     if (navigator.serviceWorker?.controller){
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const reg of regs) reg.waiting?.postMessage({type:'SKIP_WAITING'});
     }
-    // 2) 토요일 수집 실패한 경우 한 번 더 시도
-    if (isSatAfter2045() && !L5.get('L5.sat_pulled_ok')){
+    // 2) controllerchange 대기
+    await new Promise(resolve=>{
+      let to = setTimeout(resolve, 4000); // 안전 타임아웃
+      navigator.serviceWorker?.addEventListener('controllerchange', ()=>{ clearTimeout(to); resolve(); }, { once:true });
+    });
+    // 3) 토요일 실패분 재시도
+    if (isSatAfter2045() && !L5.get(STORAGE_KEYS.SAT_PULLED_OK)){
       await tryFetchLatestOnce();
     }
-    // 3) Phase1 보정
+    // 4) Phase1 보정
     await phase1IfNeeded().catch(()=>{});
   } finally {
     hideLoader();
     location.reload();
   }
 });
+
 
 /* ========= Navigation ========= */
 function nav(hash){ if (location.hash !== hash) location.hash = hash; else render(); }

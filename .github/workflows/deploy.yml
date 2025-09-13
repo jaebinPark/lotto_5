@@ -1,19 +1,41 @@
-lotto_5/
-├── js/
-│   ├── app.js           # 메인 진입점, 라우팅, 부팅 로직
-│   ├── api.js           # 모든 fetch 로직 (정적 JSON을 가져오도록 단순화)
-│   ├── storage.js       # localStorage 래퍼 (L5)
-│   ├── engine.js        # 핵심 추천 엔진 (phase1, generatePortfolio)
-│   ├── ui.js            # DOM 헬퍼 (p, h2, chip, card)
-│   └── views/
-│       ├── home.js      # renderHome()
-│       ├── saved.js     # renderSaved()와 그 헬퍼 함수들
-│       └── ...기타
-├── data/
-│   └── draws.json       # GitHub Actions에 의해 자동 생성
-├── scripts/
-│   └── fetch-data.js    # 데이터 생성을 위한 Node.js 스크립트
-├── index.html
-├── style.css
-├── sw.js
-└── ...
+# GitHub Pages에 정적 콘텐츠를 배포하기 위한 간단한 워크플로우
+name: Deploy static content to Pages
+
+on:
+  # main 브랜치에 푸시될 때 실행됩니다.
+  push:
+    branches: ["main"]
+
+  # Actions 탭에서 수동으로 실행할 수 있습니다.
+  workflow_dispatch:
+
+# GITHUB_TOKEN의 권한을 설정하여 GitHub Pages에 배포할 수 있도록 합니다.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 동시 배포를 하나만 허용하고, 진행 중인 실행과 최신 대기열 사이에 대기 중인 실행을 건너뜁니다.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # 전체 레포지토리를 업로드합니다.
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -359,6 +359,15 @@ function buildCandidates(){
   const list=[]; for (const hz of hotZs) for (const cz of coldZs) for (const w of weights) list.push({hotZ:hz,coldZ:cz,weights:{G1:w[0],G2:w[1],G3:w[2],G4:w[3],G5:Math.min(w[4],0.05)}});
   return list;
 }
+// in boot()
+if (isMonAfter7() && !L5.get(STORAGE_KEYS.WEEKLY_SIM_DONE, false)){ // 1. 여기서 값을 읽고
+    // ...
+    await phase1IfNeeded(); // 2. 시간이 걸리는 작업을 기다린 후
+    await phase1IfNeeded();
+    await phase1IfNeeded();
+    L5.set(STORAGE_KEYS.WEEKLY_SIM_DONE, true); // 3. 여기서 값을 씁니다.
+    // ...
+}
 async function doPhase1Simulation() {
   const draws = L5.get(STORAGE_KEYS.DRAWS, []);
   if (draws.length < CONFIG.BACKTEST_WINDOW) {
@@ -955,16 +964,9 @@ async function boot(){
     if (ok){ L5.set(STORAGE_KEYS.SAT_PULLED_OK, true); await phase1IfNeeded().catch(console.warn); hideLoader(); }
     else { L5.set(STORAGE_KEYS.SAT_PULLED_OK, false); hideLoader(); }
   }
-// 월요일 07:00 이후 주간 시뮬레이션(3회)
-  if (isMonAfter7() && !L5.get(STORAGE_KEYS.WEEKLY_SIM_DONE, false)){
-    showLoader('엔진 시뮬레이션 중 (1/3)…');
-    await phase1IfNeeded(); // 1회
-    showLoader('엔진 시뮬레이션 중 (2/3)…');
-    await phase1IfNeeded(); // 2회
-    showLoader('엔진 시뮬레이션 중 (3/3)…');
-    await phase1IfNeeded(); // 3회
-    L5.set(STORAGE_KEYS.WEEKLY_SIM_DONE, true);
-    hideLoader();
+  // 월요일 07:00 이후 주간 시뮬레이션(3회) - ESLint 규칙 위반을 피하기 위해 분리
+  if (isMonAfter7() && !L5.get(STORAGE_KEYS.WEEKLY_SIM_DONE, false)) {
+    await runWeeklySimulations();
   }
 
   ensureUpdateBadge();
